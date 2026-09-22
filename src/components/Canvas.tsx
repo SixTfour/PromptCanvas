@@ -4,11 +4,13 @@ import {
   Controls,
   MiniMap,
   ReactFlow,
+  applyNodeChanges,
   type Edge,
   type Node,
   type NodeChange,
 } from '@xyflow/react'
-import { useCallback, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { NODE_H, NODE_W } from '../lib/layout'
 import { useCanvas } from '../store/useCanvas'
 import { PromptNode } from './nodes/PromptNode'
 
@@ -20,16 +22,50 @@ export function CanvasView() {
   const moveNode = useCanvas((s) => s.moveNode)
   const selectedId = useCanvas((s) => s.selectedId)
 
-  const nodes = useMemo<Node[]>(
-    () =>
-      canvas.nodes.map((n) => ({
-        id: n.id,
-        type: n.type,
-        position: n.position,
-        data: n.data,
-        selected: n.id === selectedId,
-      })),
-    [canvas.nodes, selectedId],
+  /**
+   * React Flow's own copy of the nodes.
+   *
+   * The store stays the source of truth for positions and data, but React Flow
+   * needs somewhere to write back what it measures. Dropping those `dimensions`
+   * changes — as a handler that only looks at `position` does — leaves every
+   * node without `measured`, and anything that needs a node's size then treats
+   * it as having none: the minimap skips such nodes entirely and renders empty.
+   */
+  const [rfNodes, setRfNodes] = useState<Node[]>([])
+
+  useEffect(() => {
+    setRfNodes((prev) => {
+      const previous = new Map(prev.map((n) => [n.id, n]))
+      return canvas.nodes.map((n) => {
+        const old = previous.get(n.id)
+        return {
+          // Spread the old node first so measurements survive a store update.
+          ...old,
+          id: n.id,
+          type: n.type,
+          position: n.position,
+          data: n.data,
+          selected: n.id === selectedId,
+          // A size to draw with on the first frame, before measurement lands.
+          initialWidth: NODE_W,
+          initialHeight: NODE_H,
+        } as Node
+      })
+    })
+  }, [canvas.nodes, selectedId])
+
+  const onNodesChange = useCallback(
+    (changes: NodeChange[]) => {
+      setRfNodes((nds) => applyNodeChanges(changes, nds))
+      for (const c of changes) {
+        // Commit to the store once the drag ends rather than every frame: one
+        // undo step for one drag, and no store churn mid-gesture.
+        if (c.type === 'position' && c.position && c.dragging === false) {
+          moveNode(c.id, c.position)
+        }
+      }
+    },
+    [moveNode],
   )
 
   const edges = useMemo<Edge[]>(
@@ -43,25 +79,14 @@ export function CanvasView() {
         // Merge edges are dashed so a two-parent join reads differently from an
         // ordinary branch at a glance.
         style:
-          e.kind === 'merge'
-            ? { stroke: 'var(--color-accent)', strokeDasharray: '4 3' }
-            : undefined,
+          e.kind === 'merge' ? { stroke: 'var(--color-accent)', strokeDasharray: '4 3' } : undefined,
       })),
     [canvas.edges],
   )
 
-  const onNodesChange = useCallback(
-    (changes: NodeChange[]) => {
-      for (const c of changes) {
-        if (c.type === 'position' && c.position) moveNode(c.id, c.position)
-      }
-    },
-    [moveNode],
-  )
-
   return (
     <ReactFlow
-      nodes={nodes}
+      nodes={rfNodes}
       edges={edges}
       nodeTypes={nodeTypes}
       onNodesChange={onNodesChange}
@@ -79,7 +104,9 @@ export function CanvasView() {
         zoomable
         style={{ background: 'var(--color-panel)' }}
         maskColor="rgba(11,13,18,0.75)"
-        nodeColor={(n) => ((n.data as { mergedFrom?: unknown }).mergedFrom ? '#7c8cff' : '#2c3342')}
+        nodeStrokeWidth={3}
+        nodeStrokeColor={(n) => (n.selected ? '#7c8cff' : 'transparent')}
+        nodeColor={(n) => ((n.data as { mergedFrom?: unknown }).mergedFrom ? '#7c8cff' : '#39415a')}
       />
     </ReactFlow>
   )

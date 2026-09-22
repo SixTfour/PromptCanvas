@@ -11,8 +11,8 @@ import type { Canvas } from '../types'
 
 // Kept in step with the card in components/nodes/PromptNode.tsx. The card is
 // sized around its output panel, so these grow when that does.
-const NODE_W = 320
-const NODE_H = 232
+export const NODE_W = 320
+export const NODE_H = 232
 
 export function layoutCanvas(canvas: Canvas): Canvas {
   const g = new dagre.graphlib.Graph()
