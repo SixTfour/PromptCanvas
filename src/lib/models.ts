@@ -44,7 +44,11 @@ interface DtypeChoices {
 export interface ModelSpec {
   id: ModelId
   label: string
-  /** Rough download size for the chosen dtype, in MB. Shown before committing. */
+  /**
+    * Rough download for the variant a GPU gets, in MB. The CPU variant is
+    * somewhat larger; the picker replaces this with the measured size once the
+    * weights are actually on disk.
+    */
   downloadMb: number
   /** Relative weight, for the picker. One disc is fastest and weakest. */
   size: '◆' | '◆◆' | '◆◆◆'
@@ -58,7 +62,7 @@ export const MODELS: Record<ModelId, ModelSpec> = {
   'HuggingFaceTB/SmolLM-135M-Instruct': {
     id: 'HuggingFaceTB/SmolLM-135M-Instruct',
     label: 'SmolLM 135M',
-    downloadMb: 270,
+    downloadMb: 115,
     size: '◆',
     contextTokens: 2048,
     // q4f16 leads on WebGPU because it is what the transformers.js ecosystem
@@ -72,7 +76,7 @@ export const MODELS: Record<ModelId, ModelSpec> = {
   'HuggingFaceTB/SmolLM2-360M-Instruct': {
     id: 'HuggingFaceTB/SmolLM2-360M-Instruct',
     label: 'SmolLM2 360M',
-    downloadMb: 290,
+    downloadMb: 260,
     size: '◆◆',
     contextTokens: 8192,
     dtypes: { webgpu: ['q4f16', 'q4'], wasm: ['q8', 'q4'] },
@@ -82,7 +86,7 @@ export const MODELS: Record<ModelId, ModelSpec> = {
   'HuggingFaceTB/SmolLM2-1.7B-Instruct': {
     id: 'HuggingFaceTB/SmolLM2-1.7B-Instruct',
     label: 'SmolLM2 1.7B',
-    downloadMb: 1100,
+    downloadMb: 1060,
     size: '◆◆◆',
     contextTokens: 8192,
     // Never fp32/fp16 here: both carry external .onnx_data weights running to

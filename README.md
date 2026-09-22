@@ -67,9 +67,11 @@ Safari's support for the runtime is partial.
 **Hardware acceleration must be on.** Chrome only exposes WebGPU when "Use
 graphics acceleration when available" is enabled in `chrome://settings/system`;
 with it off, `requestAdapter()` returns null and everything falls back to the
-CPU. The app probes for this before downloading anything and says so, with the
-setting path, rather than letting you fetch several hundred megabytes and then
-wonder why generation crawls. `chrome://gpu` should report
+CPU. On a first visit the Models dialog probes for this before downloading
+anything and names the setting, rather than letting you fetch a few hundred
+megabytes and then wonder why generation crawls. On later visits the dialog does
+not open by itself, so the only hint is the `CPU` marker in the toolbar — open
+**Models** to be told why. `chrome://gpu` should report
 "WebGPU: Hardware accelerated".
 
 ## Getting started
@@ -97,9 +99,15 @@ since weights and saved canvases share one browser quota.
 
 | Model | Download | Context | Notes |
 |---|---|---|---|
-| **SmolLM 135M** (default) | ~270 MB | 2,048 tok | Fastest, weakest. fp16 rather than 4-bit, because quantisation measurably hurts a model this small. |
-| SmolLM2 360M | ~290 MB | 8,192 tok | Steadier, and 4× the context for about the same download. |
-| SmolLM2 1.7B | ~1.1 GB | 8,192 tok | The only one that holds a structured format reliably. Wants WebGPU. |
+| **SmolLM 135M** (default) | ~115 MB | 2,048 tok | Fastest and weakest, and the cheapest thing to try first. |
+| SmolLM2 360M | ~260 MB | 8,192 tok | Steadier, with 4× the context. |
+| SmolLM2 1.7B | ~1.1 GB | 8,192 tok | The only one that holds a structured format reliably. Wants a GPU. |
+
+Sizes are for the variant a GPU gets (`q4f16`); the CPU variant (`q8`) is
+somewhat larger. Each model lists variants in preference order and the loader
+keeps the first that **provably generates** — a backend that cannot execute a
+variant does not raise an error, it loads, runs, and returns nothing, so the
+only dependable test is to ask for a few tokens and look at them.
 
 ### Set your expectations
 
@@ -191,7 +199,8 @@ Two ways to build the merged prompt:
 ## Privacy
 
 There is no backend. Weights are fetched from `huggingface.co` on first use and
-cached; after that nothing is sent anywhere. Your prompts, your canvases and your
+cached; the model runtime is served from this origin rather than a CDN, so after
+that first download nothing is requested from anywhere. Your prompts, your canvases and your
 outputs stay in the browser. The CSP in `vercel.json` restricts `connect-src` to
 the Hugging Face CDN and nothing else.
 
@@ -250,9 +259,10 @@ prebuild step copies the runtime out of `node_modules` into `public/ort/`, so
 the files always match the installed version and nothing is fetched from a
 third party.
 
-Be aware the build includes the ONNX Runtime WebAssembly binary (~27 MB, ~6.8 MB
-gzipped). It is only fetched when a visitor actually runs a model on the CPU
-path, not on page load.
+Be aware the build carries the ONNX Runtime WebAssembly binary (~25 MB, ~6.8 MB
+gzipped), fetched the first time a model runs rather than on page load. It is
+currently emitted twice — once at `/ort/`, which is what the app loads, and once
+into `/assets/` by the bundler, which nothing reads. See Known gaps.
 
 ## Layout
 
@@ -275,11 +285,14 @@ src/
     markdown.ts           toolbar text transforms (pure, so they are testable)
     storage.ts            IndexedDB persistence, export/import
     errors.ts             OOM / WebGPU / download failures in plain English
+    backend.ts            WebGPU probe and the advice shown when it is missing
     __tests__/            one test file per module above
   components/             canvas, inspector, compare tray, diff & merge, toolbar
   store/                  zustand store
   data/                   starter canvas (prompts only, no outputs)
   test/                   canvas fixtures shared across test files
+scripts/
+  copy-ort.mjs            puts the ONNX Runtime in public/ort/ before a build
 ```
 
 Inference runs in a Web Worker. On the CPU path generation is a tight
@@ -294,7 +307,14 @@ both. Against a hosted API you would fan out; here everything queues.
 
 - Only SmolLM models. An OpenAI-compatible adapter would let you point at Ollama
   or LM Studio for a real model locally; not built.
-- No shared-link sharing; export/import is the transport.
+- The ONNX Runtime ships twice: `/ort/` (used) and `/assets/` (dead weight the
+  bundler emits from transformers.js's own reference). Costs ~25 MB of deploy
+  size and nothing else.
+- The hardware-acceleration warning only opens by itself on a first visit. Turn
+  acceleration off later and the only signal is a `CPU` marker that is not
+  styled as a problem.
+- Session links are addresses, not shares: they only resolve in the browser that
+  created the session. Export/import is the transport between machines.
 - Desktop-oriented — the three-pane layout does not collapse for phones.
 - The synthesis meta-prompt was written for a capable model and has not been
   re-tuned for a small one.
