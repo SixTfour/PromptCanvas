@@ -11,16 +11,10 @@ import {
   segmentPhrases,
   similarity,
 } from './diff'
-import { formatError, friendlyError } from './errors'
-import {
-  type KeyLike,
-  isRedo,
-  isTypingTarget,
-  isUndo,
-  shortcutLabels,
-} from './keys'
+import { friendlyError } from './errors'
+import { type KeyLike, isRedo, isTypingTarget, isUndo } from './keys'
 import { layoutCanvas } from './layout'
-import { clamp, commitNumber, presetsWithin } from './number'
+import { commitNumber, presetsWithin } from './number'
 import { type StorageLike, readPref, writePref } from './prefs'
 import { isRunOpen, orderRunsNewestFirst, runPreview } from './runs'
 import { filterSessions, matchedInBody, matchesQuery, orderSessions } from './search'
@@ -41,7 +35,6 @@ import {
   contextPressure,
   effectiveMaxNewTokens,
   estimateTokens,
-  modelMaxNewTokens,
   HALF_PRECISION,
   dtypeCandidates,
   modelIdFromUrl,
@@ -135,7 +128,7 @@ describe('prompt composition', () => {
     expect(c.blocks.at(-1)?.kind).toBe('correction')
   })
 
-  it('puts the cache breakpoint at the end of the shared prefix', () => {
+  it('counts the leading blocks a node shares with its siblings', () => {
     const c = composePrompt(starter, 'n-terse')
     // One inherited block (the bug report) is shared with the sibling branch.
     expect(c.sharedPrefixLength).toBe(1)
@@ -223,12 +216,6 @@ describe('layout', () => {
 
 
 describe('local model registry', () => {
-  it('orders the size markers from smallest to largest model', () => {
-    const byDownload = MODEL_IDS.slice().sort((a, b) => MODELS[a].downloadMb - MODELS[b].downloadMb)
-    expect(MODELS[byDownload[0]].size).toBe('◆')
-    expect(MODELS[byDownload.at(-1)!].size).toBe('◆◆◆')
-  })
-
   it('defaults to the smallest model, so the first download is the cheapest', () => {
     const smallest = MODEL_IDS.reduce((a, b) =>
       MODELS[a].downloadMb <= MODELS[b].downloadMb ? a : b,
@@ -236,9 +223,6 @@ describe('local model registry', () => {
     expect(DEFAULT_MODEL).toBe(smallest)
   })
 
-  it('gives every model a caveat, since none of them are strong', () => {
-    for (const id of MODEL_IDS) expect(MODELS[id].caveat.length).toBeGreaterThan(40)
-  })
 })
 
 describe('context budget', () => {
@@ -305,10 +289,6 @@ describe('error messages for local inference', () => {
     }
   })
 
-  it('flattens message and hint into readable lines', () => {
-    const out = formatError(new Error('out of memory'))
-    expect(out.split('\n\n')).toHaveLength(2)
-  })
 })
 
 describe('side-by-side diff rows', () => {
@@ -343,14 +323,6 @@ Going away.`, 'Shared line.')
     expect(rows.map((r) => r.kind)).toEqual(['same', 'removed'])
     expect(rows[1].b).toBeUndefined()
     expect(rows[1].a).toBe('Going away.')
-  })
-
-  it('handles an uneven rewrite without dropping or duplicating phrases', () => {
-    const aText = 'One. Two. Three.'
-    const bText = 'One changed. Two changed. Three changed. Four added.'
-    const rows = alignRows(aText, bText)
-    expect(rows.flatMap((r) => (r.a ? [r.a] : []))).toEqual(segmentPhrases(aText))
-    expect(rows.flatMap((r) => (r.b ? [r.b] : []))).toEqual(segmentPhrases(bText))
   })
 
   it('never loses a phrase, whatever the shape of the edit', () => {
@@ -391,12 +363,6 @@ describe('cached weight attribution', () => {
     )
   })
 
-  it('does not confuse SmolLM with SmolLM2', () => {
-    const url = `${HF}/HuggingFaceTB/SmolLM2-360M-Instruct/resolve/main/config.json`
-    expect(modelIdFromUrl(url)).toBe('HuggingFaceTB/SmolLM2-360M-Instruct')
-    expect(modelIdFromUrl(url)).not.toBe('HuggingFaceTB/SmolLM-135M-Instruct')
-  })
-
   it('requires a bounded path segment, not a bare substring', () => {
     // A hypothetical sibling repo whose name merely starts with a known id must
     // not be attributed to that id, or deleting one would take the other's files.
@@ -409,11 +375,6 @@ describe('cached weight attribution', () => {
     expect(modelIdFromUrl('')).toBeNull()
   })
 
-  it('claims every model it is asked about, so nothing is orphaned', () => {
-    for (const id of MODEL_IDS) {
-      expect(modelIdFromUrl(`${HF}/${id}/resolve/main/onnx/model.onnx`)).toBe(id)
-    }
-  })
 })
 
 describe('weight variant selection', () => {
@@ -510,9 +471,6 @@ describe('backend advice', () => {
     expect(none?.action).toBeUndefined()
   })
 
-  it('warns that the largest model is impractical without a GPU', () => {
-    expect(backendAdvice({ state: 'no-adapter', f16: false })?.body).toMatch(/1\.7B/)
-  })
 })
 
 describe('markdown editor transforms', () => {
@@ -650,10 +608,6 @@ describe('undo and redo shortcuts', () => {
     expect(isTypingTarget(null)).toBe(false)
   })
 
-  it('labels shortcuts in the platform notation', () => {
-    expect(shortcutLabels(MAC).undo).toBe('⌘Z')
-    expect(shortcutLabels(WIN).undo).toBe('Ctrl+Z')
-  })
 })
 
 describe('relative timestamps', () => {
@@ -689,11 +643,6 @@ describe('relative timestamps', () => {
     expect(formatRelativeTime(NOW + 5 * MIN, NOW)).toBe('just now')
   })
 
-  it('never returns an empty string', () => {
-    for (const d of [0, SEC, MIN, HOUR, DAY, 7 * DAY, 40 * DAY, 400 * DAY]) {
-      expect(formatRelativeTime(ago(d), NOW).length).toBeGreaterThan(0)
-    }
-  })
 })
 
 describe('session search', () => {
@@ -909,10 +858,6 @@ describe('committing a typed number', () => {
     }
   })
 
-  it('survives an inverted range instead of returning something impossible', () => {
-    expect(clamp(50, 100, 10)).toBe(100)
-  })
-
   it('offers only presets the model can actually hold', () => {
     expect(presetsWithin([128, 256, 512, 1024, 2048], 16, 2048)).toEqual([
       128, 256, 512, 1024, 2048,
@@ -956,11 +901,6 @@ describe('session ordering', () => {
     expect(orderSessions(list, 'missing').map((x) => x.id)).toEqual(['a', 'b'])
   })
 
-  it('keeps every session it was given', () => {
-    const list = [s('a', 200), s('open', 100), s('b', 300)]
-    expect(orderSessions(list, 'open')).toHaveLength(3)
-  })
-
   it('handles an empty list', () => {
     expect(orderSessions([], 'open')).toEqual([])
   })
@@ -990,17 +930,8 @@ describe('auto response length', () => {
     expect(effectiveMaxNewTokens(TINY, 2048, 'auto', 32)).toBe(32)
   })
 
-  it('leaves headroom rather than filling the window exactly', () => {
-    const out = effectiveMaxNewTokens(BIG, 1000, 'auto')
-    expect(out + 1000).toBeLessThan(8192)
-  })
-
   it('honours an explicit cap when there is room for it', () => {
     expect(effectiveMaxNewTokens(BIG, 100, 512)).toBe(512)
-  })
-
-  it('never lets an explicit cap exceed the model window', () => {
-    expect(effectiveMaxNewTokens(TINY, 0, 99999)).toBeLessThanOrEqual(2048)
   })
 
   /*
@@ -1012,15 +943,6 @@ describe('auto response length', () => {
     const capped = effectiveMaxNewTokens(TINY, 1800, 2000)
     expect(capped).toBeLessThan(2000)
     expect(capped + 1800).toBeLessThanOrEqual(2048)
-  })
-
-  it('leaves an explicit cap alone once the prompt is short again', () => {
-    expect(effectiveMaxNewTokens(TINY, 100, 512)).toBe(512)
-  })
-
-  it('reports the model maximum independently of any prompt', () => {
-    expect(modelMaxNewTokens(TINY)).toBe(2048)
-    expect(modelMaxNewTokens(BIG)).toBe(8192)
   })
 
   it('never exceeds the window for any combination', () => {

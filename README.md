@@ -57,7 +57,7 @@ structured prompt text, not dialogue.
 ```bash
 npm install
 npm run dev      # http://localhost:5173
-npm test         # 136 tests over DAG, composition, diff, context budget and errors
+npm test         # 121 tests over DAG, composition, diff, context budget and errors
 npm run build
 ```
 

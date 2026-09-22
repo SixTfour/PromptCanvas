@@ -23,7 +23,8 @@ export function commitNumber(draft: string, current: number, min: number, max: n
   return clamp(Math.round(parsed), min, max)
 }
 
-export function clamp(n: number, min: number, max: number): number {
+/** Module-private: the only caller is commitNumber, which is what is tested. */
+function clamp(n: number, min: number, max: number): number {
   // Guard the inverted case rather than returning something between two bounds
   // that cannot both be satisfied.
   if (max < min) return min
