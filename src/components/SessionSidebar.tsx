@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { filterSessions, matchedInBody } from '../lib/search'
-import { type CanvasSummary, summarise } from '../lib/storage'
+import { type CanvasSummary, shortSessionId, summarise } from '../lib/storage'
 import { formatRelativeTime } from '../lib/time'
 import { withSessionParam } from '../lib/url'
 import { useCanvas } from '../store/useCanvas'
@@ -153,6 +153,9 @@ export function SessionSidebar() {
                   {formatRelativeTime(s.updatedAt)} · {s.nodeCount}{' '}
                   {s.nodeCount === 1 ? 'node' : 'nodes'}
                   {s.runCount > 0 ? ` · ${s.runCount} gen` : ''}
+                </div>
+                <div className="mt-0.5 font-mono text-[10px] text-[#4a5164]" title={s.id}>
+                  {shortSessionId(s.id)}
                 </div>
                 {query && matchedInBody(s, query) && (
                   <div className="mt-0.5 text-[10px] text-[var(--color-warn)]">

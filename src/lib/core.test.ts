@@ -20,7 +20,7 @@ import {
 } from './keys'
 import { layoutCanvas } from './layout'
 import { filterSessions, matchedInBody, matchesQuery } from './search'
-import type { CanvasSummary } from './storage'
+import { type CanvasSummary, shortSessionId } from './storage'
 import { sessionIdFromSearch, withSessionParam, withoutSessionParam } from './url'
 import { formatRelativeTime } from './time'
 import {
@@ -787,5 +787,32 @@ describe('session URLs', () => {
   it('hands back the input unchanged rather than throwing on a bad URL', () => {
     expect(withSessionParam('not a url', 'c-abc')).toBe('not a url')
     expect(withoutSessionParam('not a url')).toBe('not a url')
+  })
+})
+
+describe('session id display', () => {
+  it('leaves a normally generated id alone', () => {
+    expect(shortSessionId('c-Ab3dEf9x')).toBe('c-Ab3dEf9x')
+  })
+
+  it('truncates an over-long id from an imported canvas', () => {
+    const long = 'canvas-from-somewhere-else-0123456789'
+    const out = shortSessionId(long)
+    expect(out.length).toBeLessThanOrEqual(14)
+    expect(out).toContain('…')
+  })
+
+  // Two ids that share a prefix are exactly the case this has to survive, so
+  // the tail has to be kept rather than trimmed away.
+  it('keeps both ends, so ids sharing a prefix stay distinguishable', () => {
+    const a = shortSessionId('session-prefix-aaaaaaaa')
+    const b = shortSessionId('session-prefix-bbbbbbbb')
+    expect(a).not.toBe(b)
+  })
+
+  it('handles empty and boundary lengths without throwing', () => {
+    expect(shortSessionId('')).toBe('')
+    expect(shortSessionId('12345678901234')).toBe('12345678901234')
+    expect(shortSessionId('123456789012345').length).toBeLessThanOrEqual(14)
   })
 })

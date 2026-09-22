@@ -64,6 +64,21 @@ export async function listCanvases(): Promise<CanvasSummary[]> {
     .sort((a, b) => b.updatedAt - a.updatedAt)
 }
 
+/**
+ * A session id trimmed for display.
+ *
+ * Ids generated here are already short (`c-` plus eight characters), but an
+ * imported canvas can carry anything, and a sidebar row is not the place to
+ * discover that. Keeps both ends, since the tail is what distinguishes two ids
+ * that share a prefix.
+ */
+export function shortSessionId(id: string, max = 14): string {
+  if (id.length <= max) return id
+  const head = Math.ceil((max - 1) / 2)
+  const tail = Math.floor((max - 1) / 2)
+  return `${id.slice(0, head)}…${id.slice(-tail)}`
+}
+
 /** Everything the session list shows, derived from a canvas in memory. */
 export function summarise(c: Canvas): CanvasSummary {
   const parts: string[] = [c.name]

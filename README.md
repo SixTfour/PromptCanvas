@@ -57,7 +57,7 @@ structured prompt text, not dialogue.
 ```bash
 npm install
 npm run dev      # http://localhost:5173
-npm test         # 91 tests over DAG, composition, diff, context budget and errors
+npm test         # 95 tests over DAG, composition, diff, context budget and errors
 npm run build
 ```
 
@@ -191,6 +191,10 @@ canvas. A collapsible **left rail** lists what is saved, newest first, with the 
 generation counts that tell you which one you actually want. Open, duplicate or
 delete one from there, or start a new session. Collapsed it stays as a narrow
 strip rather than vanishing, and the state is remembered.
+
+The session id is shown next to the name in the header and on every sidebar
+row, so the canvas on screen can be matched to a row in the list or to the
+`?session=` in the address bar. Clicking the one in the header copies it.
 
 Each session has an address: `?session=<id>`. Bookmark it to come back to a
 specific canvas, and browser Back and Forward move between the sessions you have

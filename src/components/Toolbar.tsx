@@ -3,7 +3,7 @@ import { currentDevice, currentDtype, loadedModel } from '../lib/engine'
 import { formatError } from '../lib/errors'
 import { shortcutLabels } from '../lib/keys'
 import { MODELS } from '../lib/models'
-import { downloadJson, exportCanvas, importCanvas } from '../lib/storage'
+import { downloadJson, exportCanvas, importCanvas, shortSessionId } from '../lib/storage'
 import { useCanvas } from '../store/useCanvas'
 import { ModelPicker } from './ModelPicker'
 import { Badge, Button } from './ui'
@@ -26,6 +26,7 @@ export function Toolbar() {
   const canRedo = useCanvas((s) => s.future.length > 0)
 
   const [showModels, setShowModels] = useState(false)
+  const [idCopied, setIdCopied] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const resident = activeModel ?? loadedModel()
@@ -45,6 +46,23 @@ export function Toolbar() {
             title="Rename this session"
             className="w-52 bg-transparent text-[13px] text-[var(--color-muted)] focus:text-[var(--color-ink)] focus:outline-none"
           />
+          {/* The id, so the canvas on screen can be matched to a row in the
+              sidebar or to the ?session= in the address bar. */}
+          <button
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(canvas.id)
+                setIdCopied(true)
+                setTimeout(() => setIdCopied(false), 1500)
+              } catch {
+                setNotice({ kind: 'warn', text: 'The clipboard is not available here.' })
+              }
+            }}
+            title={`Session ID ${canvas.id} — click to copy`}
+            className="rounded px-1.5 py-0.5 font-mono text-[10.5px] text-[#5a6175] hover:bg-[var(--color-edge)] hover:text-[var(--color-muted)]"
+          >
+            {idCopied ? 'copied' : shortSessionId(canvas.id)}
+          </button>
         </div>
 
         <div className="ml-2 flex items-center gap-1.5">
