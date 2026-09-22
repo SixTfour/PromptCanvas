@@ -8,7 +8,7 @@ import {
   AutoTokenizer,
   env,
 } from '@huggingface/transformers'
-import { modelIdFromUrl, pickDtype, type Dtype, type ModelId } from './models'
+import { dtypeCandidates, modelIdFromUrl, type Dtype, type ModelId } from './models'
 
 /**
  * Inference runs here, off the main thread.
@@ -38,7 +38,7 @@ let loaded: Loaded | null = null
 let stopper: InterruptableStoppingCriteria | null = null
 
 type Incoming =
-  | { type: 'load'; modelId: ModelId }
+  | { type: 'load'; modelId: ModelId; verifiedDtype?: Dtype | null }
   | { type: 'generate'; runId: string; modelId: ModelId; messages: ChatMessage[]; maxNewTokens: number }
   | { type: 'stop' }
   | { type: 'delete'; modelId: ModelId }
@@ -73,7 +73,44 @@ async function pickBackend(): Promise<{ device: 'webgpu' | 'wasm'; f16: boolean 
   }
 }
 
-async function load(modelId: ModelId) {
+/**
+ * Does this session actually generate anything?
+ *
+ * The failure being guarded against is not an exception. A backend that cannot
+ * execute the loaded weights will happily create a session, run generate, and
+ * return an empty string. The only dependable test is to ask for a few tokens
+ * and look at them.
+ */
+async function producesOutput(
+  tokenizer: PreTrainedTokenizer,
+  model: PreTrainedModel,
+): Promise<boolean> {
+  try {
+    const inputs = tokenizer.apply_chat_template([{ role: 'user', content: 'Say hello.' }], {
+      add_generation_prompt: true,
+      return_dict: true,
+    })
+    let text = ''
+    const streamer = new TextStreamer(tokenizer, {
+      skip_prompt: true,
+      skip_special_tokens: true,
+      callback_function: (t: string) => {
+        text += t
+      },
+    })
+    await model.generate({
+      ...(inputs as unknown as Record<string, unknown>),
+      max_new_tokens: 8,
+      do_sample: false,
+      streamer,
+    })
+    return text.trim().length > 0
+  } catch {
+    return false
+  }
+}
+
+async function load(modelId: ModelId, verifiedDtype?: Dtype | null) {
   if (loaded?.id === modelId) {
     post({ type: 'ready', modelId, device: loaded.device, dtype: loaded.dtype })
     return
@@ -90,59 +127,78 @@ async function load(modelId: ModelId) {
   }
 
   const { device, f16 } = await pickBackend()
-  const dtype = pickDtype(modelId, device, f16)
+  const candidates = dtypeCandidates(modelId, device, f16, verifiedDtype)
 
   // Whether the weights are already here decides what the progress bar should
   // claim to be doing. Saying "downloading" during a cache read is how a fast
   // local load gets mistaken for a repeated download.
   const alreadyCached = (await cachedBytes(modelId)) > 0
 
-  post({ type: 'loading', modelId, device, dtype, fromCache: alreadyCached, progress: 0, file: '' })
+  const failures: string[] = []
 
-  // transformers.js reports per-file byte progress; collapse it to one bar so
-  // the UI shows a single number rather than six competing ones.
-  const totals = new Map<string, { loaded: number; total: number }>()
-  const onProgress = (p: {
-    status?: string
-    file?: string
-    loaded?: number
-    total?: number
-  }) => {
-    if (p.status !== 'progress' || !p.file || !p.total) return
-    totals.set(p.file, { loaded: p.loaded ?? 0, total: p.total })
-    let done = 0
-    let all = 0
-    for (const v of totals.values()) {
-      done += v.loaded
-      all += v.total
+  for (const dtype of candidates) {
+    post({ type: 'loading', modelId, device, dtype, fromCache: alreadyCached, progress: 0, file: '' })
+
+    // transformers.js reports per-file byte progress; collapse it to one bar so
+    // the UI shows a single number rather than six competing ones.
+    const totals = new Map<string, { loaded: number; total: number }>()
+    const onProgress = (p: { status?: string; file?: string; loaded?: number; total?: number }) => {
+      if (p.status !== 'progress' || !p.file || !p.total) return
+      totals.set(p.file, { loaded: p.loaded ?? 0, total: p.total })
+      let done = 0
+      let all = 0
+      for (const v of totals.values()) {
+        done += v.loaded
+        all += v.total
+      }
+      post({
+        type: 'loading',
+        modelId,
+        device,
+        dtype,
+        fromCache: alreadyCached,
+        progress: all > 0 ? done / all : 0,
+        file: p.file,
+        loadedBytes: done,
+        totalBytes: all,
+      })
     }
-    post({
-      type: 'loading',
-      modelId,
-      device,
-      dtype,
-      fromCache: alreadyCached,
-      progress: all > 0 ? done / all : 0,
-      file: p.file,
-      loadedBytes: done,
-      totalBytes: all,
-    })
+
+    let tokenizer: PreTrainedTokenizer
+    let model: PreTrainedModel
+    try {
+      tokenizer = await AutoTokenizer.from_pretrained(modelId, { progress_callback: onProgress })
+      model = await AutoModelForCausalLM.from_pretrained(modelId, {
+        dtype,
+        device,
+        progress_callback: onProgress,
+      })
+    } catch (err) {
+      failures.push(`${dtype}: ${err instanceof Error ? err.message : String(err)}`)
+      continue
+    }
+
+    // Prove it works before handing it over, rather than discovering at the
+    // user's first real run that this combination emits nothing.
+    post({ type: 'verifying', modelId, device, dtype })
+    if (await producesOutput(tokenizer, model)) {
+      loaded = { id: modelId, tokenizer, model, device, dtype }
+      post({ type: 'ready', modelId, device, dtype })
+      return
+    }
+
+    failures.push(`${dtype}: loaded but generated nothing on ${device}`)
+    try {
+      await model.dispose()
+    } catch {
+      // Nothing to do; we are moving on to the next candidate regardless.
+    }
   }
 
-  try {
-    const tokenizer = await AutoTokenizer.from_pretrained(modelId, {
-      progress_callback: onProgress,
-    })
-    const model = await AutoModelForCausalLM.from_pretrained(modelId, {
-      dtype,
-      device,
-      progress_callback: onProgress,
-    })
-    loaded = { id: modelId, tokenizer, model, device, dtype }
-    post({ type: 'ready', modelId, device, dtype })
-  } catch (err) {
-    post({ type: 'error', message: err instanceof Error ? err.message : String(err) })
-  }
+  post({
+    type: 'error',
+    message: `No usable weight variant for ${modelId} on ${device}. Tried ${failures.join('; ')}.`,
+  })
 }
 
 async function generate(
@@ -314,7 +370,7 @@ self.addEventListener('message', (event: MessageEvent<Incoming>) => {
   const msg = event.data
   switch (msg.type) {
     case 'load':
-      void load(msg.modelId)
+      void load(msg.modelId, msg.verifiedDtype)
       break
     case 'generate':
       void generate(msg.runId, msg.modelId, msg.messages, msg.maxNewTokens)

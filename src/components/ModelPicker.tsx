@@ -151,11 +151,13 @@ export function ModelPicker({
                   <div className="mt-2">
                     <div className="mb-1 flex items-center justify-between text-[11px] text-[var(--color-muted)]">
                       <span>
-                        {bar.fromCache
-                          ? 'Loading from cache'
-                          : bar.progress > 0
-                            ? 'Downloading weights'
-                            : 'Contacting Hugging Face'}
+                        {bar.verifying
+                          ? 'Checking this variant runs here'
+                          : bar.fromCache
+                            ? 'Loading from cache'
+                            : bar.progress > 0
+                              ? 'Downloading weights'
+                              : 'Contacting Hugging Face'}
                         {bar.dtype ? ` · ${bar.dtype}` : ''}
                         {bar.device === 'wasm' ? ' · CPU' : bar.device === 'webgpu' ? ' · GPU' : ''}
                       </span>

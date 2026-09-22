@@ -15,6 +15,8 @@ export interface LoadProgress {
   dtype?: Dtype
   /** True when the weights were already cached, so this is a read not a fetch. */
   fromCache?: boolean
+  /** True while checking that this variant actually generates tokens. */
+  verifying?: boolean
   progress: number
   file: string
   loadedBytes?: number
@@ -77,6 +79,42 @@ function unmarkDownloaded(modelId: ModelId) {
   }
 }
 
+/**
+ * The weight variant proven to work on this machine, per model and backend.
+ *
+ * Probing costs a download for every rejected candidate, so the answer is worth
+ * keeping. Stored per device because a machine can report a different backend
+ * after a driver change or a browser update.
+ */
+const LS_VERIFIED = 'promptcanvas.verifiedDtype'
+
+function verifiedKey(modelId: ModelId, dev: string): string {
+  return `${modelId}@${dev}`
+}
+
+export function verifiedDtype(modelId: ModelId): Dtype | null {
+  try {
+    const raw = localStorage.getItem(LS_VERIFIED)
+    if (!raw) return null
+    const map = JSON.parse(raw) as Record<string, Dtype>
+    // The backend is not known until the worker probes, so accept either.
+    return map[verifiedKey(modelId, 'webgpu')] ?? map[verifiedKey(modelId, 'wasm')] ?? null
+  } catch {
+    return null
+  }
+}
+
+function rememberVerified(modelId: ModelId, dev: string, dtype: Dtype) {
+  try {
+    const raw = localStorage.getItem(LS_VERIFIED)
+    const map = raw ? (JSON.parse(raw) as Record<string, Dtype>) : {}
+    map[verifiedKey(modelId, dev)] = dtype
+    localStorage.setItem(LS_VERIFIED, JSON.stringify(map))
+  } catch {
+    /* only an optimisation */
+  }
+}
+
 export function forgetDownloaded(): void {
   try {
     localStorage.removeItem(LS_DOWNLOADED)
@@ -120,11 +158,22 @@ function ensureWorker(): Worker {
       case 'loading':
         notify(msg as unknown as LoadProgress)
         break
+      case 'verifying':
+        notify({
+          modelId: msg.modelId as ModelId,
+          device: msg.device as 'webgpu' | 'wasm',
+          dtype: msg.dtype as Dtype,
+          verifying: true,
+          progress: 1,
+          file: '',
+        })
+        break
       case 'ready': {
         readyModel = msg.modelId as ModelId
         device = msg.device as 'webgpu' | 'wasm'
         activeDtype = (msg.dtype as Dtype) ?? null
         markDownloaded(readyModel)
+        if (activeDtype && device) rememberVerified(readyModel, device, activeDtype)
         notify(null)
         // Every caller that asked for this load gets the same answer.
         for (const w of loadWaiters) w.resolve()
@@ -225,7 +274,7 @@ export function loadModel(modelId: ModelId): Promise<void> {
   // Join the load already in flight for this model rather than starting another.
   if (loadingModel !== modelId) {
     loadingModel = modelId
-    w.postMessage({ type: 'load', modelId })
+    w.postMessage({ type: 'load', modelId, verifiedDtype: verifiedDtype(modelId) })
   }
   return waiting
 }

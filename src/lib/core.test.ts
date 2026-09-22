@@ -17,8 +17,9 @@ import {
   MODEL_IDS,
   contextPressure,
   estimateTokens,
+  HALF_PRECISION,
+  dtypeCandidates,
   modelIdFromUrl,
-  pickDtype,
   type Dtype,
 } from './models'
 
@@ -391,44 +392,71 @@ describe('cached weight attribution', () => {
 })
 
 describe('weight variant selection', () => {
-  /** Variants whose compute is half precision, and so need GPU support for it. */
-  const HALF: Dtype[] = ['fp16', 'q4f16']
-  // transformers.js validates that a dtype exists, not that the backend can run
-  // it. Asking for fp16 on WASM loads a file ONNX Runtime cannot execute: the
-  // session comes up and then generates nothing at all.
-  it('never asks the CPU backend for a half-precision variant', () => {
+  const GPU = 'webgpu' as const
+  const CPU = 'wasm' as const
+
+  it('never offers the CPU backend a half-precision variant', () => {
     for (const id of MODEL_IDS) {
       for (const f16 of [true, false]) {
-        expect(HALF, `${id} on wasm`).not.toContain(pickDtype(id, 'wasm', f16))
+        for (const d of dtypeCandidates(id, CPU, f16)) {
+          expect(HALF_PRECISION, `${id} on cpu`).not.toContain(d)
+        }
       }
     }
   })
 
-  it('uses the library default of q8 on CPU', () => {
-    for (const id of MODEL_IDS) expect(pickDtype(id, 'wasm', false)).toBe('q8')
-  })
-
-  it('only uses half precision on WebGPU when shader-f16 is present', () => {
+  it('drops half-precision candidates when the adapter lacks shader-f16', () => {
     for (const id of MODEL_IDS) {
-      expect(HALF, `${id} without shader-f16`).not.toContain(pickDtype(id, 'webgpu', false))
-      expect(HALF, `${id} with shader-f16`).toContain(pickDtype(id, 'webgpu', true))
+      for (const d of dtypeCandidates(id, GPU, false)) {
+        expect(HALF_PRECISION, `${id} without shader-f16`).not.toContain(d)
+      }
     }
   })
 
-  it('keeps the smallest model off 4-bit, which measurably degrades it', () => {
-    const tiny = 'HuggingFaceTB/SmolLM-135M-Instruct' as const
-    expect(pickDtype(tiny, 'webgpu', true)).toBe('fp16')
-    expect(pickDtype(tiny, 'webgpu', false)).toBe('fp32')
-    expect(pickDtype(tiny, 'wasm', false)).toBe('q8')
+  // The bug this guards: an adapter can advertise shader-f16, load fp16 weights,
+  // and still generate nothing. A single choice left no way out of that.
+  it('always leaves a fallback to try after the first candidate', () => {
+    for (const id of MODEL_IDS) {
+      expect(dtypeCandidates(id, GPU, true).length, `${id} on gpu`).toBeGreaterThan(1)
+      expect(dtypeCandidates(id, CPU, false).length, `${id} on cpu`).toBeGreaterThan(1)
+    }
   })
 
-  it('keeps the 1.7B off variants that carry multi-GB external weight files', () => {
+  it('never returns an empty list, whatever the machine reports', () => {
+    for (const id of MODEL_IDS) {
+      for (const backend of [GPU, CPU]) {
+        for (const f16 of [true, false]) {
+          expect(dtypeCandidates(id, backend, f16).length).toBeGreaterThan(0)
+        }
+      }
+    }
+  })
+
+  it('puts a previously verified variant first, without duplicating it', () => {
+    const id = MODEL_IDS[0]
+    const all = dtypeCandidates(id, GPU, true)
+    const fallback = all[1]
+    const reordered = dtypeCandidates(id, GPU, true, fallback)
+    expect(reordered[0]).toBe(fallback)
+    expect(reordered).toHaveLength(all.length)
+    expect(new Set(reordered).size).toBe(reordered.length)
+  })
+
+  it('ignores a remembered variant that is not valid for this backend', () => {
+    const id = MODEL_IDS[0]
+    // fp16 was verified on some other machine; this one has no shader-f16.
+    const candidates = dtypeCandidates(id, GPU, false, 'fp16' as Dtype)
+    expect(candidates).not.toContain('fp16')
+    expect(candidates.length).toBeGreaterThan(0)
+  })
+
+  it('keeps the 1.7B off variants with multi-GB external weight files', () => {
     const big = 'HuggingFaceTB/SmolLM2-1.7B-Instruct' as const
-    // Only model.onnx and model_fp16.onnx have .onnx_data siblings upstream.
-    for (const backend of ['webgpu', 'wasm'] as const) {
+    for (const backend of [GPU, CPU]) {
       for (const f16 of [true, false]) {
-        expect(pickDtype(big, backend, f16)).not.toBe('fp32')
-        expect(pickDtype(big, backend, f16)).not.toBe('fp16')
+        const c = dtypeCandidates(big, backend, f16)
+        expect(c).not.toContain('fp32')
+        expect(c).not.toContain('fp16')
       }
     }
   })
