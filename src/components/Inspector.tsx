@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { composePrompt } from '../lib/compose'
+import { presetsWithin } from '../lib/number'
 import { readPref, writePref } from '../lib/prefs'
 import {
   MODELS,
@@ -14,12 +15,18 @@ import { useCanvas } from '../store/useCanvas'
 import { Markdown } from './Markdown'
 import { MarkdownEditor } from './MarkdownEditor'
 import type { ContextBlock, ModelId } from '../types'
-import { Badge, Button, Input, Label, Segmented, Select } from './ui'
+import { Badge, Button, Input, Label, NumberField, Segmented, Select } from './ui'
 
 /** How the Composed tab was last read. Remembered, since it is a reading habit. */
 const COMPOSED_VIEW_KEY = 'promptcanvas.composedView'
 const COMPOSED_VIEWS = ['raw', 'rendered'] as const
 type ComposedView = (typeof COMPOSED_VIEWS)[number]
+
+/** One-click lengths, filtered to what the chosen model can actually hold. */
+const TOKEN_PRESETS = [128, 256, 512, 1024, 2048] as const
+
+/** Enough to be a real answer; below this the model is cut off mid-sentence. */
+const MIN_NEW_TOKENS = 16
 
 const KINDS: Array<{ value: ContextBlock['kind']; label: string }> = [
   { value: 'context', label: 'context' },
@@ -257,13 +264,34 @@ export function Inspector() {
               </div>
               <div>
                 <Label>Max new tokens</Label>
-                <Input
-                  value={String(node.data.maxNewTokens)}
-                  onChange={(v) =>
-                    update(node.id, { maxNewTokens: Math.max(16, Number(v) || 256) })
-                  }
+                <NumberField
+                  value={node.data.maxNewTokens}
+                  onChange={(v) => update(node.id, { maxNewTokens: v })}
+                  min={MIN_NEW_TOKENS}
+                  max={spec.contextTokens}
+                  step={64}
+                  suffix="tok"
                 />
               </div>
+            </div>
+
+            <div className="-mt-2 flex flex-wrap items-center gap-1">
+              {presetsWithin(TOKEN_PRESETS, MIN_NEW_TOKENS, spec.contextTokens).map((p) => (
+                <button
+                  key={p}
+                  onClick={() => update(node.id, { maxNewTokens: p })}
+                  className={`rounded px-1.5 py-0.5 text-[11px] ${
+                    node.data.maxNewTokens === p
+                      ? 'bg-[var(--color-accent)] text-[#0b0d12]'
+                      : 'text-[var(--color-muted)] hover:bg-[var(--color-edge)] hover:text-[var(--color-ink)]'
+                  }`}
+                >
+                  {p}
+                </button>
+              ))}
+              <span className="ml-auto text-[10.5px] text-[#5a6175]">
+                {MIN_NEW_TOKENS}–{formatTokens(spec.contextTokens)}, shared with the prompt
+              </span>
             </div>
 
             <p className="-mt-2 text-[11px] leading-relaxed text-[#5a6175]">

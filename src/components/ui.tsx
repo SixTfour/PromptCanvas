@@ -1,4 +1,5 @@
-import type { ButtonHTMLAttributes, ReactNode } from 'react'
+import { useEffect, useState, type ButtonHTMLAttributes, type ReactNode } from 'react'
+import { commitNumber } from '../lib/number'
 import { Icon, type IconName } from './Icon'
 
 export function Button({
@@ -237,5 +238,75 @@ export function IconButton({
     >
       <Icon name={icon} filled={filled} />
     </button>
+  )
+}
+
+/**
+ * A number field that lets you finish typing.
+ *
+ * Holds what you typed as text and only parses and clamps on blur or Enter, so
+ * a partially typed number is never rewritten underneath the caret. Escape
+ * abandons the edit, and arrow keys step the committed value.
+ */
+export function NumberField({
+  value,
+  onChange,
+  min,
+  max,
+  step = 1,
+  suffix,
+}: {
+  value: number
+  onChange: (v: number) => void
+  min: number
+  max: number
+  step?: number
+  suffix?: string
+}) {
+  const [draft, setDraft] = useState(String(value))
+
+  // Follow the value when it changes elsewhere — a preset, an undo — without
+  // disturbing an edit in progress.
+  useEffect(() => setDraft(String(value)), [value])
+
+  const commit = () => {
+    const next = commitNumber(draft, value, min, max)
+    setDraft(String(next))
+    if (next !== value) onChange(next)
+  }
+
+  const nudge = (delta: number) => {
+    const next = commitNumber(String(value + delta), value, min, max)
+    setDraft(String(next))
+    if (next !== value) onChange(next)
+  }
+
+  return (
+    <div className="flex items-center rounded-md border border-[var(--color-edge)] bg-[var(--color-canvas)] focus-within:border-[var(--color-accent)]">
+      <input
+        value={draft}
+        inputMode="numeric"
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault()
+            commit()
+            e.currentTarget.blur()
+          } else if (e.key === 'Escape') {
+            setDraft(String(value))
+            e.currentTarget.blur()
+          } else if (e.key === 'ArrowUp') {
+            e.preventDefault()
+            nudge(step)
+          } else if (e.key === 'ArrowDown') {
+            e.preventDefault()
+            nudge(-step)
+          }
+        }}
+        className="w-full bg-transparent px-2.5 py-1.5 text-[13px] text-[var(--color-ink)] focus:outline-none"
+      />
+      {suffix && <span className="pr-2.5 text-[11px] text-[#5a6175]">{suffix}</span>}
+    </div>
   )
 }

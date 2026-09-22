@@ -57,7 +57,7 @@ structured prompt text, not dialogue.
 ```bash
 npm install
 npm run dev      # http://localhost:5173
-npm test         # 100 tests over DAG, composition, diff, context budget and errors
+npm test         # 107 tests over DAG, composition, diff, context budget and errors
 npm run build
 ```
 
@@ -245,6 +245,7 @@ src/
     diff.ts               word- and phrase-level diff, merge assembly, meta-prompt
     layout.ts             dagre auto-layout (handles two-parent merges)
     keys.ts               platform-aware shortcut matching
+    number.ts             committing typed numbers without fighting the caret
     prefs.ts              remembered view preferences, validated on read
     search.ts             session search over names and prompt text
     url.ts                ?session= addressing, parsed and rewritten purely
