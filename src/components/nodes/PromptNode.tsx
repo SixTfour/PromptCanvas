@@ -4,7 +4,7 @@ import { formatTokens } from '../../lib/models'
 import { useCanvas } from '../../store/useCanvas'
 import type { PromptNodeData } from '../../types'
 import { Markdown } from '../Markdown'
-import { Badge } from '../ui'
+import { Badge, IconButton } from '../ui'
 
 /**
  * A node on the canvas.
@@ -117,48 +117,47 @@ function PromptNodeInner({ id, data, selected }: NodeProps & { data: PromptNodeD
           )}
         </span>
         <div className="ml-auto flex shrink-0 items-center gap-0.5">
-          <button
-            className="rounded px-1.5 py-0.5 hover:bg-[var(--color-edge)] hover:text-[var(--color-ink)]"
-            title="Branch from this node"
+          <IconButton
+            icon="branch"
+            label="Branch from this node"
             onClick={(e) => {
               e.stopPropagation()
               addBranch(id)
             }}
-          >
-            branch
-          </button>
-          <button
-            className={`rounded px-1.5 py-0.5 hover:bg-[var(--color-edge)] ${
-              inCompare ? 'text-[var(--color-warn)]' : 'hover:text-[var(--color-ink)]'
-            }`}
-            title="Pin to the comparison tray"
+          />
+          <IconButton
+            icon="compare"
+            // Filled when pinned, so the state is visible without reading a word.
+            filled={inCompare}
+            tone={inCompare ? 'warn' : 'muted'}
+            label={inCompare ? 'Unpin from the comparison tray' : 'Pin to the comparison tray'}
             onClick={(e) => {
               e.stopPropagation()
               toggleCompare(id)
             }}
-          >
-            {inCompare ? 'pinned' : 'compare'}
-          </button>
+          />
           {busy ? (
-            <button
-              className="rounded px-1.5 py-0.5 text-[var(--color-danger)] hover:bg-[var(--color-edge)]"
+            <IconButton
+              icon="stop"
+              filled
+              tone="danger"
+              label="Stop generating"
               onClick={(e) => {
                 e.stopPropagation()
                 cancelNode(id)
               }}
-            >
-              stop
-            </button>
+            />
           ) : (
-            <button
-              className="rounded px-1.5 py-0.5 text-[var(--color-accent)] hover:bg-[var(--color-edge)]"
+            <IconButton
+              icon={shown ? 'rerun' : 'run'}
+              filled={!shown}
+              tone="accent"
+              label={shown ? 'Run again' : 'Run this prompt'}
               onClick={(e) => {
                 e.stopPropagation()
                 void runNode(id)
               }}
-            >
-              {shown ? 'rerun' : 'run'}
-            </button>
+            />
           )}
         </div>
       </div>

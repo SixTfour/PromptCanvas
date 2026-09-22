@@ -4,7 +4,7 @@ import { type CanvasSummary, shortSessionId, summarise } from '../lib/storage'
 import { formatRelativeTime } from '../lib/time'
 import { withSessionParam } from '../lib/url'
 import { useCanvas } from '../store/useCanvas'
-import { Badge, Button } from './ui'
+import { Badge, Button, IconButton } from './ui'
 
 /**
  * Saved sessions, as a collapsible left rail.
@@ -194,8 +194,15 @@ export function SessionSidebar() {
                   </Button>
                 </div>
               ) : (
-                <div className="mt-1 flex items-center gap-0.5 text-[10.5px]">
-                  <button
+                <div className="mt-1 flex items-center gap-0.5">
+                  <IconButton
+                    icon="link"
+                    tone={copied === s.id ? 'accent' : 'muted'}
+                    label={
+                      copied === s.id
+                        ? 'Link copied'
+                        : 'Copy a link that reopens this session — on this browser only'
+                    }
                     onClick={async () => {
                       try {
                         await navigator.clipboard.writeText(
@@ -207,26 +214,21 @@ export function SessionSidebar() {
                         setNotice({ kind: 'warn', text: 'The clipboard is not available here.' })
                       }
                     }}
-                    title="Copy a link that reopens this session — on this browser only"
-                    className="rounded px-1.5 py-0.5 text-[var(--color-muted)] hover:bg-[var(--color-edge)] hover:text-[var(--color-ink)]"
-                  >
-                    {copied === s.id ? 'copied' : 'link'}
-                  </button>
-                  <button
+                  />
+                  <IconButton
+                    icon="duplicate"
+                    label="Duplicate this session, leaving the original untouched"
                     onClick={async () => {
                       await duplicateSession(s.id)
                       refresh()
                     }}
-                    className="rounded px-1.5 py-0.5 text-[var(--color-muted)] hover:bg-[var(--color-edge)] hover:text-[var(--color-ink)]"
-                  >
-                    duplicate
-                  </button>
-                  <button
+                  />
+                  <IconButton
+                    icon="trash"
+                    tone="danger"
+                    label="Delete this session"
                     onClick={() => setConfirming(s.id)}
-                    className="rounded px-1.5 py-0.5 text-[var(--color-muted)] hover:bg-[#3a1f22] hover:text-[var(--color-danger)]"
-                  >
-                    delete
-                  </button>
+                  />
                 </div>
               )}
             </div>

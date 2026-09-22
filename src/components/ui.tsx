@@ -1,4 +1,5 @@
 import type { ButtonHTMLAttributes, ReactNode } from 'react'
+import { Icon, type IconName } from './Icon'
 
 export function Button({
   children,
@@ -195,5 +196,46 @@ export function Segmented<T extends string>({
         </button>
       ))}
     </div>
+  )
+}
+
+/**
+ * An icon-only button.
+ *
+ * `label` is mandatory and does double duty as the tooltip and the accessible
+ * name. Dropping a text label makes an action faster to reach and impossible to
+ * guess, so the tooltip is not decoration here — it is the only thing naming
+ * what the button does.
+ */
+export function IconButton({
+  icon,
+  label,
+  tone = 'muted',
+  filled = false,
+  className = '',
+  ...rest
+}: ButtonHTMLAttributes<HTMLButtonElement> & {
+  icon: IconName
+  label: string
+  tone?: 'muted' | 'accent' | 'warn' | 'danger'
+  filled?: boolean
+}) {
+  const tones = {
+    muted:
+      'text-[var(--color-muted)] hover:bg-[var(--color-edge)] hover:text-[var(--color-ink)]',
+    accent: 'text-[var(--color-accent)] hover:bg-[var(--color-edge)]',
+    warn: 'text-[var(--color-warn)] hover:bg-[var(--color-edge)]',
+    danger: 'text-[var(--color-muted)] hover:bg-[#3a1f22] hover:text-[var(--color-danger)]',
+  }
+  return (
+    <button
+      type="button"
+      title={label}
+      aria-label={label}
+      className={`inline-flex items-center justify-center rounded p-1 transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${tones[tone]} ${className}`}
+      {...rest}
+    >
+      <Icon name={icon} filled={filled} />
+    </button>
   )
 }
