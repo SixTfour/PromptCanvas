@@ -13,7 +13,8 @@ import {
 import { generate } from '../lib/engine'
 import { formatError } from '../lib/errors'
 import { useCanvas } from '../store/useCanvas'
-import { Badge, Button, Field, Modal } from './ui'
+import { MarkdownEditor } from './MarkdownEditor'
+import { Badge, Button, Modal } from './ui'
 
 /**
  * Diff & Merge.
@@ -249,10 +250,10 @@ export function DiffMerge({
               {synthesising ? 'Synthesising…' : 'Synthesise with the model'}
             </Button>
           </div>
-          <Field
+          <MarkdownEditor
             value={finalText}
             onChange={setMerged}
-            rows={13}
+            rows={11}
             placeholder="Select phrases on the left, or synthesise with the model. You can edit the result here."
           />
         </div>

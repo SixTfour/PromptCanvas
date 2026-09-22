@@ -17,6 +17,13 @@ node you can return to, run again, and diff against its siblings.
 The canvas is a **DAG, not a tree**: merging two branches creates a new node with
 two incoming edges. Neither parent is modified and no history is destroyed.
 
+Output is rendered as **markdown**, because small instruct models emit it
+whether or not you ask — headings, bold labels, numbered steps — and showing
+`**Severity:**` literally made the one thing you are there to read the hardest
+thing on screen. Prompt text is edited in a **markdown editor** with a
+formatting toolbar, Ctrl+B/I/K shortcuts and a preview toggle. Raw HTML is not
+enabled in the renderer: model output is untrusted text.
+
 Each node on the canvas leads with its **generated text** — that is the only
 high-contrast type on the card, with the title, counters and actions sized to
 stay out of its way. The inspector opens on Output for any node that has been
@@ -50,7 +57,7 @@ structured prompt text, not dialogue.
 ```bash
 npm install
 npm run dev      # http://localhost:5173
-npm test         # 53 tests over DAG, composition, diff, context budget and errors
+npm test         # 64 tests over DAG, composition, diff, context budget and errors
 npm run build
 ```
 
@@ -195,6 +202,7 @@ src/
     compose.ts            DAG walking, root→node prompt composition
     diff.ts               word- and phrase-level diff, merge assembly, meta-prompt
     layout.ts             dagre auto-layout (handles two-parent merges)
+    markdown.ts           toolbar text transforms (pure, so they are testable)
     storage.ts            IndexedDB persistence, export/import
     errors.ts             OOM / WebGPU / download failures in plain English
     core.test.ts          tests for the above

@@ -10,8 +10,10 @@ import {
   formatTokens,
 } from '../lib/models'
 import { useCanvas } from '../store/useCanvas'
+import { Markdown } from './Markdown'
+import { MarkdownEditor } from './MarkdownEditor'
 import type { ContextBlock, ModelId } from '../types'
-import { Badge, Button, Field, Input, Label, Select } from './ui'
+import { Badge, Button, Input, Label, Select } from './ui'
 
 const KINDS: Array<{ value: ContextBlock['kind']; label: string }> = [
   { value: 'context', label: 'context' },
@@ -120,7 +122,7 @@ export function Inspector() {
             {isRoot && (
               <div>
                 <Label>System prompt — inherited by every branch</Label>
-                <Field
+                <MarkdownEditor
                   value={node.data.system ?? ''}
                   onChange={(v) => update(node.id, { system: v })}
                   placeholder="You are…"
@@ -204,7 +206,7 @@ export function Inspector() {
                         ✕
                       </button>
                     </div>
-                    <Field
+                    <MarkdownEditor
                       value={b.text}
                       onChange={(v) => updateBlock(node.id, b.id, { text: v })}
                       placeholder={
@@ -212,7 +214,7 @@ export function Inspector() {
                           ? 'What the previous output got wrong, and what to do instead…'
                           : 'Context…'
                       }
-                      rows={b.kind === 'correction' ? 4 : 3}
+                      rows={b.kind === 'correction' ? 5 : 4}
                     />
                   </div>
                 ))}
@@ -221,11 +223,12 @@ export function Inspector() {
 
             <div>
               <Label>Instruction {isRoot ? '' : '(overrides inherited)'}</Label>
-              <Field
+              <MarkdownEditor
                 value={node.data.instruction ?? ''}
                 onChange={(v) => update(node.id, { instruction: v })}
                 placeholder={composed.instruction || 'What should the model do?'}
-                rows={2}
+                rows={3}
+                allowPreview={false}
               />
             </div>
 
@@ -318,7 +321,7 @@ export function Inspector() {
               </div>
             )}
             <div>
-              <Label>User turn — what actually gets sent</Label>
+              <Label>User turn — what actually gets sent, verbatim</Label>
               <pre className="whitespace-pre-wrap rounded bg-[var(--color-canvas)] p-2.5 text-[12px] leading-relaxed">
                 {composed.text || '(empty)'}
               </pre>
@@ -381,8 +384,10 @@ export function Inspector() {
                 ) : (
                   /* Generated text is the reason this panel exists: full width,
                      body-copy size, and no inner scroll box to read it through. */
-                  <div className="whitespace-pre-wrap px-3 py-2.5 text-[13px] leading-[1.65] text-[var(--color-ink)]">
-                    {r.text || (
+                  <div className="px-3 py-2.5 text-[13px] leading-[1.65] text-[var(--color-ink)]">
+                    {r.text ? (
+                      <Markdown>{r.text}</Markdown>
+                    ) : (
                       <span className="text-[var(--color-muted)]">
                         {r.status === 'done' ? '(empty response)' : 'waiting for the first token…'}
                       </span>

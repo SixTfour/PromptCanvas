@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { similarity } from '../lib/diff'
 import { useCanvas } from '../store/useCanvas'
 import { DiffMerge } from './DiffMerge'
+import { Markdown } from './Markdown'
 import { Badge, Button } from './ui'
 
 /**
@@ -95,9 +96,15 @@ export function CompareTray() {
                         {r.status === 'streaming' && <Badge tone="accent">live</Badge>}
                         {r.status === 'error' && <Badge tone="danger">error</Badge>}
                       </div>
-                      <pre className="whitespace-pre-wrap rounded bg-[var(--color-panel)] p-2 text-[12px] leading-relaxed">
-                        {r.error ?? r.text ?? ''}
-                      </pre>
+                      {r.error ? (
+                        <p className="whitespace-pre-wrap rounded bg-[var(--color-panel)] p-2 text-[12px] leading-relaxed text-[var(--color-danger)]">
+                          {r.error}
+                        </p>
+                      ) : (
+                        <div className="rounded bg-[var(--color-panel)] p-2 text-[12px] leading-relaxed">
+                          <Markdown>{r.text ?? ''}</Markdown>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>

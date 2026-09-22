@@ -3,6 +3,7 @@ import { memo } from 'react'
 import { formatTokens } from '../../lib/models'
 import { useCanvas } from '../../store/useCanvas'
 import type { PromptNodeData } from '../../types'
+import { Markdown } from '../Markdown'
 import { Badge } from '../ui'
 
 /**
@@ -68,13 +69,13 @@ function PromptNodeInner({ id, data, selected }: NodeProps & { data: PromptNodeD
              pre-wrap disagree about where a line ends, and the fade also reads
              as "there is more of this" rather than as a hard cut. */
           <div
-            className="max-h-[128px] overflow-hidden whitespace-pre-wrap text-[12.5px] leading-relaxed text-[var(--color-ink)]"
+            className="max-h-[128px] overflow-hidden text-[12.5px] leading-relaxed text-[var(--color-ink)]"
             style={{
               maskImage: 'linear-gradient(to bottom, #000 76%, transparent 100%)',
               WebkitMaskImage: 'linear-gradient(to bottom, #000 76%, transparent 100%)',
             }}
           >
-            {shown}
+            <Markdown>{shown}</Markdown>
             {busy && (
               <span className="ml-0.5 inline-block h-[13px] w-[7px] translate-y-[2px] animate-pulse bg-[var(--color-accent)]" />
             )}
