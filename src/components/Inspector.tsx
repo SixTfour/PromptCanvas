@@ -13,7 +13,7 @@ import { useCanvas } from '../store/useCanvas'
 import { Markdown } from './Markdown'
 import { MarkdownEditor } from './MarkdownEditor'
 import type { ContextBlock, ModelId } from '../types'
-import { Badge, Button, Input, Label, Select } from './ui'
+import { Badge, Button, Input, Label, Segmented, Select } from './ui'
 
 const KINDS: Array<{ value: ContextBlock['kind']; label: string }> = [
   { value: 'context', label: 'context' },
@@ -36,6 +36,7 @@ export function Inspector() {
 
   const [tab, setTab] = useState<'output' | 'prompt' | 'composed'>('output')
   const [copied, setCopied] = useState<string | null>(null)
+  const [composedView, setComposedView] = useState<'raw' | 'rendered'>('raw')
   const lastNode = useRef<string | null>(null)
 
   const node = canvas.nodes.find((n) => n.id === selectedId)
@@ -126,7 +127,7 @@ export function Inspector() {
                   value={node.data.system ?? ''}
                   onChange={(v) => update(node.id, { system: v })}
                   placeholder="You are…"
-                  rows={3}
+                  rows={6}
                 />
               </div>
             )}
@@ -214,7 +215,7 @@ export function Inspector() {
                           ? 'What the previous output got wrong, and what to do instead…'
                           : 'Context…'
                       }
-                      rows={b.kind === 'correction' ? 5 : 4}
+                      rows={b.kind === 'correction' ? 10 : 8}
                     />
                   </div>
                 ))}
@@ -227,8 +228,7 @@ export function Inspector() {
                 value={node.data.instruction ?? ''}
                 onChange={(v) => update(node.id, { instruction: v })}
                 placeholder={composed.instruction || 'What should the model do?'}
-                rows={3}
-                allowPreview={false}
+                rows={5}
               />
             </div>
 
@@ -312,20 +312,71 @@ export function Inspector() {
 
         {tab === 'composed' && (
           <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              {/* Raw leads, because this tab's job is to show exactly what will
+                  be sent. Rendered is for judging whether the markdown you
+                  wrote is well-formed before spending a generation on it. */}
+              <Segmented
+                value={composedView}
+                onChange={setComposedView}
+                options={[
+                  { value: 'raw', label: 'raw' },
+                  { value: 'rendered', label: 'rendered' },
+                ]}
+              />
+              <Button
+                size="sm"
+                variant="ghost"
+                className="ml-auto"
+                onClick={() =>
+                  void copy(
+                    'composed',
+                    [composed.system, composed.text].filter(Boolean).join(`\n\n`),
+                  )
+                }
+              >
+                {copied === 'composed' ? 'copied' : 'copy all'}
+              </Button>
+            </div>
+
             {composed.system && (
               <div>
                 <Label>System</Label>
-                <pre className="whitespace-pre-wrap rounded bg-[var(--color-canvas)] p-2.5 text-[12px] leading-relaxed text-[var(--color-muted)]">
-                  {composed.system}
-                </pre>
+                {composedView === 'raw' ? (
+                  <pre className="whitespace-pre-wrap rounded bg-[var(--color-canvas)] p-2.5 text-[12px] leading-relaxed text-[var(--color-muted)]">
+                    {composed.system}
+                  </pre>
+                ) : (
+                  <div className="rounded bg-[var(--color-canvas)] p-2.5 text-[12.5px] leading-relaxed text-[var(--color-muted)]">
+                    <Markdown>{composed.system}</Markdown>
+                  </div>
+                )}
               </div>
             )}
+
             <div>
-              <Label>User turn — what actually gets sent, verbatim</Label>
-              <pre className="whitespace-pre-wrap rounded bg-[var(--color-canvas)] p-2.5 text-[12px] leading-relaxed">
-                {composed.text || '(empty)'}
-              </pre>
+              <Label>
+                {composedView === 'raw'
+                  ? 'User turn — what actually gets sent, verbatim'
+                  : 'User turn — how the markdown reads'}
+              </Label>
+              {composedView === 'raw' ? (
+                <pre className="whitespace-pre-wrap rounded bg-[var(--color-canvas)] p-2.5 text-[12px] leading-relaxed">
+                  {composed.text || '(empty)'}
+                </pre>
+              ) : (
+                <div className="rounded bg-[var(--color-canvas)] p-2.5 text-[12.5px] leading-relaxed text-[var(--color-ink)]">
+                  {composed.text ? <Markdown>{composed.text}</Markdown> : '(empty)'}
+                </div>
+              )}
             </div>
+
+            {composedView === 'rendered' && (
+              <p className="text-[11px] leading-relaxed text-[#5a6175]">
+                The model receives the raw text, not this. Rendering it only shows whether the
+                markdown is well-formed.
+              </p>
+            )}
           </div>
         )}
 

@@ -14,7 +14,7 @@ import { generate } from '../lib/engine'
 import { formatError } from '../lib/errors'
 import { useCanvas } from '../store/useCanvas'
 import { MarkdownEditor } from './MarkdownEditor'
-import { Badge, Button, Modal } from './ui'
+import { Badge, Button, Modal, Segmented } from './ui'
 
 /**
  * Diff & Merge.
@@ -362,34 +362,6 @@ function Cell({
             ))
           : text}
       </span>
-    </div>
-  )
-}
-
-function Segmented<T extends string>({
-  value,
-  onChange,
-  options,
-}: {
-  value: T
-  onChange: (v: T) => void
-  options: Array<{ value: T; label: string }>
-}) {
-  return (
-    <div className="flex overflow-hidden rounded border border-[var(--color-edge)]">
-      {options.map((o) => (
-        <button
-          key={o.value}
-          onClick={() => onChange(o.value)}
-          className={`px-2.5 py-1 text-[12px] ${
-            value === o.value
-              ? 'bg-[var(--color-accent)] text-[#0b0d12]'
-              : 'text-[var(--color-muted)] hover:bg-[var(--color-edge)] hover:text-[var(--color-ink)]'
-          }`}
-        >
-          {o.label}
-        </button>
-      ))}
     </div>
   )
 }

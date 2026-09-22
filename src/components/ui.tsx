@@ -167,3 +167,33 @@ export function Modal({
     </div>
   )
 }
+
+/** A small two-or-three-way switch, for view modes rather than data. */
+export function Segmented<T extends string>({
+  value,
+  onChange,
+  options,
+}: {
+  value: T
+  onChange: (v: T) => void
+  options: Array<{ value: T; label: string }>
+}) {
+  return (
+    <div className="flex overflow-hidden rounded border border-[var(--color-edge)]">
+      {options.map((o) => (
+        <button
+          key={o.value}
+          type="button"
+          onClick={() => onChange(o.value)}
+          className={`px-2.5 py-1 text-[12px] ${
+            value === o.value
+              ? 'bg-[var(--color-accent)] text-[#0b0d12]'
+              : 'text-[var(--color-muted)] hover:bg-[var(--color-edge)] hover:text-[var(--color-ink)]'
+          }`}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  )
+}
