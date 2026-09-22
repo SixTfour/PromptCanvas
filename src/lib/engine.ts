@@ -64,6 +64,15 @@ function markDownloaded(modelId: ModelId) {
   }
 }
 
+function unmarkDownloaded(modelId: ModelId) {
+  try {
+    const left = downloadedModels().filter((m) => m !== modelId)
+    localStorage.setItem(LS_DOWNLOADED, JSON.stringify(left))
+  } catch {
+    /* only a hint */
+  }
+}
+
 export function forgetDownloaded(): void {
   try {
     localStorage.removeItem(LS_DOWNLOADED)
@@ -76,6 +85,10 @@ let worker: Worker | null = null
 let readyModel: ModelId | null = null
 let device: 'webgpu' | 'wasm' | null = null
 const progressListeners = new Set<Listener>()
+
+let usageResolve: ((u: Partial<Record<ModelId, number>>) => void) | null = null
+let deleteResolve: ((freed: number) => void) | null = null
+let deleteReject: ((e: Error) => void) | null = null
 
 /** Resolvers for in-flight operations, keyed by run id (or '@load'). */
 const pending = new Map<
@@ -136,6 +149,27 @@ function ensureWorker(): Worker {
         pending.delete(id)
         break
       }
+      case 'usage':
+        usageResolve?.(msg.usage as Partial<Record<ModelId, number>>)
+        usageResolve = null
+        break
+      case 'deleted': {
+        const id = msg.modelId as ModelId
+        if (readyModel === id) {
+          readyModel = null
+          device = null
+        }
+        unmarkDownloaded(id)
+        deleteResolve?.(Number(msg.freed ?? 0))
+        deleteResolve = null
+        deleteReject = null
+        break
+      }
+      case 'delete-error':
+        deleteReject?.(new Error(String(msg.message ?? 'Could not delete the model.')))
+        deleteResolve = null
+        deleteReject = null
+        break
     }
   })
   return worker
@@ -228,6 +262,48 @@ export function generate(
 /** How many generations are waiting or running. */
 export function queueDepth(): number {
   return pending.size - (pending.has('@load') ? 1 : 0)
+}
+
+/** Bytes each model currently occupies in the browser cache. */
+export function cacheUsage(): Promise<Partial<Record<ModelId, number>>> {
+  const w = ensureWorker()
+  return new Promise((resolve) => {
+    usageResolve = resolve
+    w.postMessage({ type: 'usage' })
+    // Storage APIs can be blocked outright; do not leave the UI spinning.
+    setTimeout(() => {
+      if (usageResolve === resolve) {
+        usageResolve = null
+        resolve({})
+      }
+    }, 8000)
+  })
+}
+
+/**
+ * Delete a model's cached weights, returning the bytes reclaimed.
+ *
+ * Runs in the worker so it can dispose the model first and read the library's
+ * own cache key rather than a hardcoded copy of it.
+ */
+export function deleteModel(modelId: ModelId): Promise<number> {
+  const w = ensureWorker()
+  return new Promise((resolve, reject) => {
+    deleteResolve = resolve
+    deleteReject = reject
+    w.postMessage({ type: 'delete', modelId })
+  })
+}
+
+/** Total bytes this origin is using, when the browser will say. */
+export async function storageEstimate(): Promise<{ usage: number; quota: number } | null> {
+  try {
+    const est = await navigator.storage?.estimate?.()
+    if (!est || est.usage === undefined) return null
+    return { usage: est.usage, quota: est.quota ?? 0 }
+  } catch {
+    return null
+  }
 }
 
 /** Interrupt the decode loop. The in-flight promise resolves with what it has. */

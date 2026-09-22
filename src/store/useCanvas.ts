@@ -48,6 +48,8 @@ interface CanvasState {
   removeBlock: (nodeId: string, blockId: string) => void
 
   ensureModel: (modelId: ModelId) => Promise<boolean>
+  /** Clear the remembered model, e.g. after its weights are deleted. */
+  setActiveModel: (modelId: ModelId | null) => void
   runNode: (nodeId: string, samples?: number) => Promise<void>
   runMany: (nodeIds: string[], samples?: number) => Promise<void>
   cancelNode: (nodeId: string) => void
@@ -328,6 +330,8 @@ export const useCanvas = create<CanvasState>((set, get) => {
       // One model, one worker: there is only ever one generation to interrupt.
       stopGeneration()
     },
+
+    setActiveModel: (modelId) => set({ activeModel: modelId }),
 
     /** Download and initialise a model, reporting failure as a notice. */
     ensureModel: async (modelId) => {

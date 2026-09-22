@@ -118,3 +118,18 @@ export function contextPressure(
     level: ratio > 1 ? 'over' : ratio > 0.8 ? 'tight' : 'ok',
   }
 }
+
+/**
+ * Which model a cached request URL belongs to, or null.
+ *
+ * Matched on the bounded repo path (`/<owner>/<name>/`) rather than a bare
+ * substring. A plain `includes` would be a latent footgun: the moment one model
+ * id is a prefix of another, deleting the shorter one would silently take the
+ * longer one's weights with it.
+ */
+export function modelIdFromUrl(url: string): ModelId | null {
+  for (const id of MODEL_IDS) {
+    if (url.includes(`/${id}/`) || url.endsWith(`/${id}`)) return id
+  }
+  return null
+}

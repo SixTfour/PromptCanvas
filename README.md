@@ -44,7 +44,7 @@ structured prompt text, not dialogue.
 ```bash
 npm install
 npm run dev      # http://localhost:5173
-npm test         # 37 tests over DAG, composition, diff, context budget and errors
+npm test         # 42 tests over DAG, composition, diff, context budget and errors
 npm run build
 ```
 
@@ -62,8 +62,15 @@ prompts never leave the browser.
 You land on a starter canvas: a baseline prompt plus two competing trace
 corrections, ready to run, compare and merge. Nothing on it is pre-generated —
 every output you see was produced by the model on your machine. **New** clears
-it, **Reset** brings it back, and **Models** lets you download another one or
-switch between the ones you already have.
+it and **Reset** brings it back.
+
+**Models** manages what is on disk. Each row shows a live download progress bar
+with real byte counts while it fetches, what the model actually occupies once
+cached (measured, not estimated), and a **Delete** button that evicts its
+weights and tells you how much it reclaimed. Deleting the model currently in use
+disposes it first, so you are never left with a session that works until reload
+and then mysteriously does not. The dialog also reports total storage used,
+since weights and saved canvases share one browser quota.
 
 ## The models
 

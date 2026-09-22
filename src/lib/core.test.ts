@@ -17,6 +17,7 @@ import {
   MODEL_IDS,
   contextPressure,
   estimateTokens,
+  modelIdFromUrl,
 } from './models'
 
 const starter = buildStarterCanvas()
@@ -347,5 +348,42 @@ Going away.`, 'Shared line.')
   it('reports identical text as zero differences', () => {
     expect(countChanges(alignRows('Same words.', 'Same words.'))).toBe(0)
     expect(countChanges(alignRows('One.', 'Two.'))).toBe(1)
+  })
+})
+
+describe('cached weight attribution', () => {
+  const HF = 'https://huggingface.co'
+
+  it('attributes a weight URL to the right model', () => {
+    expect(modelIdFromUrl(`${HF}/HuggingFaceTB/SmolLM-135M-Instruct/resolve/main/onnx/model_fp16.onnx`)).toBe(
+      'HuggingFaceTB/SmolLM-135M-Instruct',
+    )
+    expect(modelIdFromUrl(`${HF}/HuggingFaceTB/SmolLM2-1.7B-Instruct/resolve/main/tokenizer.json`)).toBe(
+      'HuggingFaceTB/SmolLM2-1.7B-Instruct',
+    )
+  })
+
+  it('does not confuse SmolLM with SmolLM2', () => {
+    const url = `${HF}/HuggingFaceTB/SmolLM2-360M-Instruct/resolve/main/config.json`
+    expect(modelIdFromUrl(url)).toBe('HuggingFaceTB/SmolLM2-360M-Instruct')
+    expect(modelIdFromUrl(url)).not.toBe('HuggingFaceTB/SmolLM-135M-Instruct')
+  })
+
+  it('requires a bounded path segment, not a bare substring', () => {
+    // A hypothetical sibling repo whose name merely starts with a known id must
+    // not be attributed to that id, or deleting one would take the other's files.
+    const decoy = `${HF}/HuggingFaceTB/SmolLM-135M-Instruct-GGUF/resolve/main/model.gguf`
+    expect(modelIdFromUrl(decoy)).toBeNull()
+  })
+
+  it('ignores unrelated URLs', () => {
+    expect(modelIdFromUrl('https://example.com/whatever.bin')).toBeNull()
+    expect(modelIdFromUrl('')).toBeNull()
+  })
+
+  it('claims every model it is asked about, so nothing is orphaned', () => {
+    for (const id of MODEL_IDS) {
+      expect(modelIdFromUrl(`${HF}/${id}/resolve/main/onnx/model.onnx`)).toBe(id)
+    }
   })
 })

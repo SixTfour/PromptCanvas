@@ -8,7 +8,7 @@ import {
   AutoTokenizer,
   env,
 } from '@huggingface/transformers'
-import { MODELS, type ModelId } from './models'
+import { MODELS, modelIdFromUrl, type ModelId } from './models'
 
 /**
  * Inference runs here, off the main thread.
@@ -40,6 +40,8 @@ type Incoming =
   | { type: 'load'; modelId: ModelId }
   | { type: 'generate'; runId: string; modelId: ModelId; messages: ChatMessage[]; maxNewTokens: number }
   | { type: 'stop' }
+  | { type: 'delete'; modelId: ModelId }
+  | { type: 'usage' }
 
 interface ChatMessage {
   role: 'system' | 'user' | 'assistant'
@@ -183,6 +185,92 @@ async function generate(
   }
 }
 
+/**
+ * Every Cache Storage bucket transformers.js writes to.
+ *
+ * Read from `env` rather than hardcoded, so a library default change does not
+ * silently leave orphaned weights on disk. The hash cache is a separate bucket
+ * and is easy to miss.
+ */
+function cacheNames(): string[] {
+  const primary = (env as unknown as { cacheKey?: string }).cacheKey ?? 'transformers-cache'
+  return [primary, 'experimental_transformers-hash-cache']
+}
+
+/** Bytes a cached response occupies, from its header rather than its body. */
+async function entrySize(res: Response | undefined): Promise<number> {
+  if (!res) return 0
+  const len = res.headers.get('content-length')
+  if (len) return Number(len) || 0
+  // No content-length: fall back to measuring, which costs a read but is rare.
+  try {
+    return (await res.clone().blob()).size
+  } catch {
+    return 0
+  }
+}
+
+/** Per-model cached size, so the UI can show what deleting would reclaim. */
+async function reportUsage() {
+  const usage: Record<string, number> = {}
+  if (typeof caches === 'undefined') {
+    post({ type: 'usage', usage })
+    return
+  }
+  try {
+    for (const name of cacheNames()) {
+      if (!(await caches.has(name))) continue
+      const cache = await caches.open(name)
+      for (const req of await cache.keys()) {
+        // Cache keys are the source URLs, which carry the model repo path.
+        const match = modelIdFromUrl(req.url)
+        if (!match) continue
+        usage[match] = (usage[match] ?? 0) + (await entrySize(await cache.match(req)))
+      }
+    }
+  } catch {
+    // Storage can be unavailable or partitioned; an empty report is honest.
+  }
+  post({ type: 'usage', usage })
+}
+
+/**
+ * Evict a model's weights.
+ *
+ * Disposes it first if it is the resident model, because deleting the files
+ * underneath a live session leaves a model that works until reload and then
+ * mysteriously does not.
+ */
+async function deleteModel(modelId: ModelId) {
+  if (loaded?.id === modelId) {
+    try {
+      await loaded.model.dispose()
+    } catch {
+      // Best effort; the weights still go.
+    }
+    loaded = null
+  }
+
+  let freed = 0
+  if (typeof caches !== 'undefined') {
+    try {
+      for (const name of cacheNames()) {
+        if (!(await caches.has(name))) continue
+        const cache = await caches.open(name)
+        for (const req of await cache.keys()) {
+          if (modelIdFromUrl(req.url) !== modelId) continue
+          freed += await entrySize(await cache.match(req))
+          await cache.delete(req)
+        }
+      }
+    } catch (err) {
+      post({ type: 'delete-error', modelId, message: err instanceof Error ? err.message : String(err) })
+      return
+    }
+  }
+  post({ type: 'deleted', modelId, freed })
+}
+
 self.addEventListener('message', (event: MessageEvent<Incoming>) => {
   const msg = event.data
   switch (msg.type) {
@@ -195,6 +283,12 @@ self.addEventListener('message', (event: MessageEvent<Incoming>) => {
     case 'stop':
       // Interrupts the decode loop at the next token boundary.
       stopper?.interrupt()
+      break
+    case 'delete':
+      void deleteModel(msg.modelId)
+      break
+    case 'usage':
+      void reportUsage()
       break
   }
 })
