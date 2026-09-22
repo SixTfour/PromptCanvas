@@ -1,0 +1,204 @@
+# Prompt Canvas
+
+A graph editor for prompt engineering. Instead of a linear chat, prompts live on
+a canvas: you branch off a node by adding a context snippet or a trace
+correction, run the branches, compare their outputs side by side, and merge the
+best parts of two branches into a new prompt.
+
+**No API key. No account. No cost.** The model runs in your browser.
+
+## Why a graph
+
+Prompt engineering is not linear, but chat UIs are. You try something, it is 80%
+right, you fix the one thing that was wrong — and now the earlier version is
+buried in scrollback and you cannot compare them. Branching makes each attempt a
+node you can return to, run again, and diff against its siblings.
+
+The canvas is a **DAG, not a tree**: merging two branches creates a new node with
+two incoming edges. Neither parent is modified and no history is destroyed.
+
+## The model
+
+A node is a **composed prompt spec**, not a chat turn:
+
+```
+ROOT
+  system:      "You are an engineering triage assistant."
+  context:     <the raw bug report>
+  instruction: "Turn this into a triaged ticket."
+   |
+   ├── "Correction: scannable"   + correction block
+   │
+   └── "Correction: severity"    + correction block
+         |
+         ▼
+     [MERGE] ── new node, two incoming edges
+```
+
+The prompt is built by walking root → node and concatenating every enabled block
+along the way. That is what makes Diff & Merge meaningful: you are diffing
+structured prompt text, not dialogue.
+
+## Running it
+
+```bash
+npm install
+npm run dev      # http://localhost:5173
+npm test         # 34 tests over DAG, composition, diff, context budget and errors
+npm run build
+```
+
+Node 20+ to develop. To *use* it you need a current Chrome, Edge or Firefox —
+Safari's support for the runtime is partial.
+
+## The two modes
+
+### Sample mode (default)
+
+Opens instantly, generates nothing, makes no network calls. Every response is a
+**curated reference output** written to show what a good answer to each prompt
+looks like — deliberately *not* what the local model produces. The point is to
+teach the workflow with legible material. Every sample run is labelled as such in
+the UI.
+
+### Local mode
+
+Click **Run it for real**. This downloads the model weights from Hugging Face
+once, caches them in the browser, and runs inference on your machine via
+[transformers.js](https://github.com/huggingface/transformers.js) — WebGPU where
+available, CPU otherwise.
+
+After the download it works offline. Your prompts never leave the browser.
+
+## The models
+
+| Model | Download | Context | Notes |
+|---|---|---|---|
+| **SmolLM 135M** (default) | ~270 MB | 2,048 tok | Fastest, weakest. fp16 rather than 4-bit, because quantisation measurably hurts a model this small. |
+| SmolLM2 360M | ~290 MB | 8,192 tok | Steadier, and 4× the context for about the same download. |
+| SmolLM2 1.7B | ~1.1 GB | 8,192 tok | The only one that holds a structured format reliably. Wants WebGPU. |
+
+### Set your expectations
+
+These are 135M–1.7B parameter models. The default is roughly a thousandth the
+size of a frontier model, and it shows. Asked *"You are a triage assistant.
+Summarise: the app crashes on submit,"* SmolLM-135M replied:
+
+> *"The triage assistant, also known as the 'assistant to the user,' is a tool
+> that helps triage users in a hospital or healthcare facility..."*
+
+It ignored the task and free-associated about hospital triage. The model card
+itself notes it struggles with arithmetic, editing and multi-step reasoning.
+
+**This is the honest trade for "free and private."** Prompt Canvas is still
+genuinely useful here — branching, diffing and merging all work, and a small
+model is unusually *sensitive* to wording, so the effect of a prompt change is
+often more visible than it would be on a model smart enough to guess your intent
+regardless. Just do not read its answers as authoritative. Switch to Sample mode
+to see what a strong model produces for the same prompts.
+
+If you want stronger answers, pick SmolLM2 1.7B in the Model dropdown.
+
+### Context is the constraint
+
+Money is no longer the limiting resource — context is. SmolLM 135M has a
+**2,048-token window shared by the prompt and the completion**, and Prompt Canvas
+composes prompts by concatenating every ancestor's blocks, so a deep branch grows
+monotonically toward that ceiling.
+
+The inspector shows a live context budget bar, warns at 80%, and disables **Run**
+when a prompt would overflow — because overflow is *silent truncation*, not an
+error. Deep lineages want SmolLM2 and its 8k window.
+
+### One upside
+
+Generation is greedy (`do_sample: false`), so re-running an unchanged prompt
+returns identical text. A/B comparison between branches is genuinely
+reproducible, which it is not against a hosted API with no seed.
+
+## Diff & Merge
+
+Pin exactly two branches to the compare tray and hit **Diff & Merge**. You get a
+word-level inline diff for reading, and two ways to build the merged prompt:
+
+- **Pick phrases** — deterministic and exact. Phrases both branches share are
+  selected by default; contested ones are yours to choose. Merging works at
+  phrase granularity because word-level merging produces grammatical rubble.
+- **Synthesise with the model** — hands both prompts and both outputs to the
+  local model and asks for a single stronger prompt. The meta-prompt is in
+  [`src/lib/diff.ts`](src/lib/diff.ts), visible and editable. On a 135M model
+  expect this to be weak; picking phrases is the reliable path.
+
+## Privacy
+
+There is no backend. Weights are fetched from `huggingface.co` on first use and
+cached; after that nothing is sent anywhere. Your prompts, your canvases and your
+outputs stay in the browser. The CSP in `vercel.json` restricts `connect-src` to
+the Hugging Face CDN and nothing else.
+
+## Persistence
+
+Canvases live in IndexedDB — localStorage's ~5 MB ceiling is both small for a few
+dozen responses and, when you hit it, a silent quota exception mid-write.
+**Export** writes a `promptcanvas.v1` JSON file, which is also the format the
+bundled sample dataset uses, so there is one schema rather than two that drift.
+
+Cached model weights and saved canvases share the same browser storage quota.
+
+## Deploying to Vercel
+
+```bash
+npm i -g vercel
+vercel
+```
+
+Pure static build — no serverless functions, no environment variables, no
+secrets. `vercel.json` sets the SPA rewrite, security headers, and a CSP that
+permits WebAssembly and the Hugging Face CDN.
+
+Be aware the build includes the ONNX Runtime WebAssembly binary (~27 MB, ~6.8 MB
+gzipped). It is only fetched when a visitor actually runs a model on the CPU
+path, not on page load.
+
+## Layout
+
+```
+src/
+  lib/
+    models.ts             model registry, sizes, context budget helper
+    engine.ts             main-thread client: load progress, serial run queue
+    inference.worker.ts   transformers.js inference, off the main thread
+    compose.ts            DAG walking, root→node prompt composition
+    diff.ts               word- and phrase-level diff, merge assembly, meta-prompt
+    layout.ts             dagre auto-layout (handles two-parent merges)
+    storage.ts            IndexedDB persistence, export/import
+    errors.ts             OOM / WebGPU / download failures in plain English
+    core.test.ts          tests for the above
+  components/             canvas, inspector, compare tray, diff & merge, toolbar
+  store/                  zustand store
+  data/                   bundled sample canvas
+```
+
+Inference runs in a Web Worker. On the CPU path generation is a tight
+synchronous loop that would otherwise freeze the canvas completely — no panning,
+no streaming repaint, and a Stop button that does nothing.
+
+Runs are **serialised**: there is one model in one worker and `generate` is not
+reentrant, so firing two at once interleaves their decode loops and corrupts
+both. Against a hosted API you would fan out; here everything queues.
+
+## Known gaps
+
+- Only SmolLM models. An OpenAI-compatible adapter would let you point at Ollama
+  or LM Studio for a real model locally; not built.
+- No shared-link sharing; export/import is the transport.
+- Desktop-oriented — the three-pane layout does not collapse for phones.
+- The synthesis meta-prompt was written for a capable model and has not been
+  re-tuned for a small one.
+- Sample-mode responses are illustrative, not generated by any model shipped
+  here.
+
+## Licence
+
+MIT. Model weights are licensed separately by their authors — SmolLM is Apache
+2.0.

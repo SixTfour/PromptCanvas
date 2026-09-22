@@ -1,0 +1,264 @@
+import { describe, expect, it } from 'vitest'
+import { buildDemoCanvas, demoResponseFor } from '../data/demoCanvas'
+import { ancestorChain, composePrompt, descendantsOf, parentsOf } from './compose'
+import { alignPhrases, assemble, segmentPhrases, similarity } from './diff'
+import { formatError, friendlyError } from './errors'
+import { layoutCanvas } from './layout'
+import {
+  DEFAULT_MODEL,
+  MODELS,
+  MODEL_IDS,
+  contextPressure,
+  estimateTokens,
+} from './models'
+
+const demo = buildDemoCanvas()
+
+describe('DAG traversal', () => {
+  it('walks a plain branch root-first', () => {
+    expect(ancestorChain(demo, 'n-terse')).toEqual(['n-root', 'n-terse'])
+  })
+
+  it('reaches a merge node through both parents without duplicating the root', () => {
+    const chain = ancestorChain(demo, 'n-merged')
+    expect(chain).toContain('n-root')
+    expect(chain).toContain('n-terse')
+    expect(chain).toContain('n-severity')
+    // The shared ancestor must appear exactly once, or its context is sent twice.
+    expect(chain.filter((id) => id === 'n-root')).toHaveLength(1)
+    // Every node must come after all of its own ancestors.
+    expect(chain.indexOf('n-root')).toBeLessThan(chain.indexOf('n-terse'))
+    expect(chain.indexOf('n-terse')).toBeLessThan(chain.indexOf('n-merged'))
+  })
+
+  it('reports both parents of a merge node', () => {
+    expect(parentsOf(demo, 'n-merged').sort()).toEqual(['n-severity', 'n-terse'])
+  })
+
+  it('finds descendants across the merge join', () => {
+    expect(descendantsOf(demo, 'n-root')).toEqual(
+      new Set(['n-terse', 'n-severity', 'n-merged']),
+    )
+  })
+
+  it('does not hang on a cycle', () => {
+    const cyclic = {
+      ...demo,
+      edges: [...demo.edges, { id: 'bad', source: 'n-merged', target: 'n-root', kind: 'branch' as const }],
+    }
+    expect(() => ancestorChain(cyclic, 'n-merged')).not.toThrow()
+  })
+})
+
+describe('prompt composition', () => {
+  it('inherits the root system prompt and instruction down a branch', () => {
+    const c = composePrompt(demo, 'n-terse')
+    expect(c.system).toContain('engineering triage assistant')
+    expect(c.instruction).toBe('Turn the bug report into a triaged engineering ticket.')
+  })
+
+  it('marks inherited blocks and includes the branch own block last', () => {
+    const c = composePrompt(demo, 'n-terse')
+    expect(c.blocks[0].inherited).toBe(true)
+    expect(c.blocks.at(-1)?.inherited).toBe(false)
+    expect(c.blocks.at(-1)?.kind).toBe('correction')
+  })
+
+  it('puts the cache breakpoint at the end of the shared prefix', () => {
+    const c = composePrompt(demo, 'n-terse')
+    // One inherited block (the bug report) is shared with the sibling branch.
+    expect(c.sharedPrefixLength).toBe(1)
+    expect(c.blocks.slice(0, c.sharedPrefixLength).every((b) => b.inherited)).toBe(true)
+  })
+
+  it('gives two siblings an identical shared prefix', () => {
+    const a = composePrompt(demo, 'n-terse')
+    const b = composePrompt(demo, 'n-severity')
+    const prefixA = a.blocks.slice(0, a.sharedPrefixLength).map((x) => x.text)
+    const prefixB = b.blocks.slice(0, b.sharedPrefixLength).map((x) => x.text)
+    expect(prefixA).toEqual(prefixB)
+  })
+
+  it('excludes disabled blocks from the composed text', () => {
+    const off = {
+      ...demo,
+      nodes: demo.nodes.map((n) =>
+        n.id === 'n-root'
+          ? { ...n, data: { ...n.data, blocks: n.data.blocks.map((b) => ({ ...b, enabled: false })) } }
+          : n,
+      ),
+    }
+    expect(composePrompt(off, 'n-terse').text).not.toContain('NW-88213')
+  })
+})
+
+describe('phrase diff and merge', () => {
+  it('keeps list items whole rather than splitting them mid-bullet', () => {
+    const segs = segmentPhrases('- first item. still the item\n- second item')
+    expect(segs).toEqual(['- first item. still the item', '- second item'])
+  })
+
+  it('splits flowing prose on sentence boundaries', () => {
+    expect(segmentPhrases('One thing. Two things! Three?')).toEqual([
+      'One thing.',
+      'Two things!',
+      'Three?',
+    ])
+  })
+
+  it('marks shared phrases as "both" and unique ones by side', () => {
+    const p = alignPhrases('Keep this. Only in A.', 'Keep this. Only in B.')
+    const both = p.filter((x) => x.side === 'both')
+    expect(both).toHaveLength(1)
+    expect(both[0].text).toBe('Keep this.')
+    expect(p.some((x) => x.side === 'a' && x.text === 'Only in A.')).toBe(true)
+    expect(p.some((x) => x.side === 'b' && x.text === 'Only in B.')).toBe(true)
+  })
+
+  it('assembles only the selected phrases, in order', () => {
+    const p = alignPhrases('Alpha. Beta.', 'Alpha. Gamma.')
+    const picked = new Set(p.filter((x) => x.side !== 'a').map((x) => x.id))
+    expect(assemble(p, picked)).toBe('Alpha.\nGamma.')
+  })
+
+  it('scores identical text as fully similar and disjoint text as not', () => {
+    expect(similarity('Same words here.', 'Same words here.')).toBe(1)
+    expect(similarity('Totally different.', 'Nothing alike.')).toBeLessThan(0.2)
+  })
+})
+
+
+describe('layout', () => {
+  it('lays out a DAG with a two-parent merge without losing nodes', () => {
+    const out = layoutCanvas(demo)
+    expect(out.nodes).toHaveLength(demo.nodes.length)
+    // The merge must sit to the right of both of its parents.
+    const pos = Object.fromEntries(out.nodes.map((n) => [n.id, n.position]))
+    expect(pos['n-merged'].x).toBeGreaterThan(pos['n-terse'].x)
+    expect(pos['n-merged'].x).toBeGreaterThan(pos['n-severity'].x)
+  })
+
+  it('tolerates an edge pointing at a deleted node', () => {
+    const broken = {
+      ...demo,
+      edges: [...demo.edges, { id: 'x', source: 'n-root', target: 'gone', kind: 'branch' as const }],
+    }
+    expect(() => layoutCanvas(broken)).not.toThrow()
+  })
+})
+
+describe('demo mode response matching', () => {
+  const textFor = (id: string) => composePrompt(demo, id).text
+
+  it('resolves every node in the bundled canvas', () => {
+    for (const n of demo.nodes) {
+      expect(demoResponseFor(textFor(n.id)), `no canned response for ${n.id}`).not.toBeNull()
+    }
+  })
+
+  it('gives each branch a distinct response', () => {
+    const root = demoResponseFor(textFor('n-root'))
+    const terse = demoResponseFor(textFor('n-terse'))
+    const sev = demoResponseFor(textFor('n-severity'))
+    const merged = demoResponseFor(textFor('n-merged'))
+    expect(new Set([root, terse, sev, merged]).size).toBe(4)
+  })
+
+  it('matches the merged node on both corrections, not just the first', () => {
+    expect(demoResponseFor(textFor('n-merged'))).toBe(demoResponseFor(textFor('n-merged')))
+    expect(demoResponseFor(textFor('n-merged'))).not.toBe(demoResponseFor(textFor('n-terse')))
+  })
+
+  it('returns null for a prompt the dataset does not cover', () => {
+    expect(demoResponseFor('write me a haiku about otters')).toBeNull()
+  })
+})
+
+describe('local model registry', () => {
+  it('orders the size markers from smallest to largest model', () => {
+    const byDownload = MODEL_IDS.slice().sort((a, b) => MODELS[a].downloadMb - MODELS[b].downloadMb)
+    expect(MODELS[byDownload[0]].size).toBe('◆')
+    expect(MODELS[byDownload.at(-1)!].size).toBe('◆◆◆')
+  })
+
+  it('defaults to the smallest model, so the first download is the cheapest', () => {
+    const smallest = MODEL_IDS.reduce((a, b) =>
+      MODELS[a].downloadMb <= MODELS[b].downloadMb ? a : b,
+    )
+    expect(DEFAULT_MODEL).toBe(smallest)
+  })
+
+  it('gives every model a caveat, since none of them are strong', () => {
+    for (const id of MODEL_IDS) expect(MODELS[id].caveat.length).toBeGreaterThan(40)
+  })
+})
+
+describe('context budget', () => {
+  // The binding constraint is no longer money, it is the 2048-token window on
+  // SmolLM 135M, which the prompt and the completion share.
+  it('counts generated tokens against the same window as the prompt', () => {
+    const p = contextPressure(DEFAULT_MODEL, 1900, 256)
+    expect(p.limit).toBe(2048)
+    expect(p.used).toBe(2156)
+    expect(p.level).toBe('over')
+  })
+
+  it('warns before overflowing rather than only after', () => {
+    expect(contextPressure(DEFAULT_MODEL, 1500, 256).level).toBe('tight')
+    expect(contextPressure(DEFAULT_MODEL, 400, 256).level).toBe('ok')
+  })
+
+  it('flags the bundled sample branches as safe on the default model', () => {
+    for (const id of ['n-root', 'n-terse', 'n-severity', 'n-merged']) {
+      const c = composePrompt(demo, id)
+      const tokens = estimateTokens(c.text) + estimateTokens(c.system)
+      const p = contextPressure(DEFAULT_MODEL, tokens, 256)
+      expect(p.level, `${id} overflows the default model's window`).not.toBe('over')
+    }
+  })
+})
+
+describe('error messages for local inference', () => {
+  it('names the out-of-memory case and suggests a smaller model', () => {
+    const f = friendlyError(new Error('Failed to allocate buffer: out of memory'))
+    expect(f.message).toMatch(/out of memory/i)
+    expect(f.hint).toMatch(/smaller model|close other tabs/i)
+  })
+
+  it('explains a WebGPU failure as a fallback rather than a dead end', () => {
+    const f = friendlyError(new Error('Device lost: webgpu adapter unavailable'))
+    expect(f.message).toMatch(/webgpu/i)
+    expect(f.hint).toMatch(/CPU/i)
+  })
+
+  it('tells the user weights are cached after the first download', () => {
+    const f = friendlyError(new TypeError('Failed to fetch'))
+    expect(f.message).toMatch(/could not be downloaded/i)
+    expect(f.hint).toMatch(/cached|offline/i)
+  })
+
+  it('treats an interrupt as a cancellation, not a failure', () => {
+    expect(friendlyError(new Error('Generation was interrupted')).message).toBe('Cancelled.')
+  })
+
+  it('translates a bad import file', () => {
+    let thrown: unknown
+    try {
+      JSON.parse('not json')
+    } catch (e) {
+      thrown = e
+    }
+    expect(friendlyError(thrown).message).toBe('That file is not valid JSON.')
+  })
+
+  it('does not render "undefined" or "[object Object]" for odd throws', () => {
+    for (const odd of [undefined, null, {}, 42, '']) {
+      expect(friendlyError(odd).message).not.toMatch(/undefined|\[object Object\]|^$/)
+    }
+  })
+
+  it('flattens message and hint into readable lines', () => {
+    const out = formatError(new Error('out of memory'))
+    expect(out.split('\n\n')).toHaveLength(2)
+  })
+})

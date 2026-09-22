@@ -1,0 +1,38 @@
+@import "tailwindcss";
+@import "@xyflow/react/dist/style.css";
+
+@theme {
+  --color-canvas: #0b0d12;
+  --color-panel: #12151d;
+  --color-edge: #232936;
+  --color-ink: #e6e9ef;
+  --color-muted: #8b93a7;
+  --color-accent: #7c8cff;
+  --color-warn: #f0b429;
+  --color-danger: #f26d6d;
+  --color-good: #4ec9a0;
+}
+
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 14px;
+}
+
+/* React Flow surface tuned to the dark palette */
+.react-flow__background { background: var(--color-canvas); }
+.react-flow__edge-path { stroke: var(--color-edge); stroke-width: 1.5; }
+.react-flow__edge.selected .react-flow__edge-path { stroke: var(--color-accent); }
+.react-flow__handle { background: var(--color-edge); border: 1px solid var(--color-canvas); width: 8px; height: 8px; }
+.react-flow__attribution { display: none; }
+.react-flow__controls-button {
+  background: var(--color-panel); border-color: var(--color-edge); fill: var(--color-ink);
+}
+.react-flow__controls-button:hover { background: var(--color-edge); }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--color-edge); border-radius: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
