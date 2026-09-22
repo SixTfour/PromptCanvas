@@ -6,14 +6,15 @@ import { MODELS } from '../lib/models'
 import { downloadJson, exportCanvas, importCanvas } from '../lib/storage'
 import { useCanvas } from '../store/useCanvas'
 import { ModelPicker } from './ModelPicker'
+import { SessionBrowser } from './SessionBrowser'
 import { Badge, Button } from './ui'
 
 export function Toolbar() {
   const canvas = useCanvas((s) => s.canvas)
   const setCanvas = useCanvas((s) => s.setCanvas)
+  const renameSession = useCanvas((s) => s.renameSession)
   const relayout = useCanvas((s) => s.relayout)
   const resetToStarter = useCanvas((s) => s.resetToStarter)
-  const newCanvas = useCanvas((s) => s.newCanvas)
   const setNotice = useCanvas((s) => s.setNotice)
   const activeModel = useCanvas((s) => s.activeModel)
   const loading = useCanvas((s) => s.loading)
@@ -24,6 +25,7 @@ export function Toolbar() {
   const canRedo = useCanvas((s) => s.future.length > 0)
 
   const [showModels, setShowModels] = useState(false)
+  const [showSessions, setShowSessions] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const resident = activeModel ?? loadedModel()
@@ -39,7 +41,8 @@ export function Toolbar() {
           <span className="text-[13px] text-[var(--color-muted)]">/</span>
           <input
             value={canvas.name}
-            onChange={(e) => setCanvas({ ...canvas, name: e.target.value })}
+            onChange={(e) => renameSession(e.target.value)}
+            title="Rename this session"
             className="w-52 bg-transparent text-[13px] text-[var(--color-muted)] focus:text-[var(--color-ink)] focus:outline-none"
           />
         </div>
@@ -92,13 +95,10 @@ export function Toolbar() {
           <Button
             size="sm"
             variant="ghost"
-            onClick={() => {
-              newCanvas()
-              setNotice({ kind: 'info', text: 'Started a blank canvas.' })
-            }}
-            title="Start an empty canvas"
+            onClick={() => setShowSessions(true)}
+            title="Browse and reopen saved sessions"
           >
-            New
+            Sessions
           </Button>
           <Button size="sm" variant="ghost" onClick={relayout} title="Re-run auto-layout">
             Tidy
@@ -161,6 +161,7 @@ export function Toolbar() {
       </header>
 
       {showModels && <ModelPicker onClose={() => setShowModels(false)} />}
+      {showSessions && <SessionBrowser onClose={() => setShowSessions(false)} />}
     </>
   )
 }

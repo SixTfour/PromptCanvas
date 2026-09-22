@@ -28,7 +28,16 @@ export async function deleteCanvas(id: string): Promise<void> {
   await del(PREFIX + id)
 }
 
-export async function listCanvases(): Promise<Array<Pick<Canvas, 'id' | 'name' | 'updatedAt'>>> {
+export interface CanvasSummary {
+  id: string
+  name: string
+  updatedAt: number
+  nodeCount: number
+  /** Generated responses across the whole canvas, which is what makes a session worth reopening. */
+  runCount: number
+}
+
+export async function listCanvases(): Promise<CanvasSummary[]> {
   const allKeys = await keys()
   const ids = allKeys
     .filter((k): k is string => typeof k === 'string' && k.startsWith(PREFIX))
@@ -36,12 +45,34 @@ export async function listCanvases(): Promise<Array<Pick<Canvas, 'id' | 'name' |
   const out = await Promise.all(
     ids.map(async (id) => {
       const c = await loadCanvas(id)
-      return c ? { id: c.id, name: c.name, updatedAt: c.updatedAt } : null
+      if (!c) return null
+      return {
+        id: c.id,
+        name: c.name,
+        updatedAt: c.updatedAt,
+        nodeCount: c.nodes.length,
+        runCount: c.nodes.reduce((n, node) => n + node.data.runs.length, 0),
+      }
     }),
   )
   return out
-    .filter((c): c is Pick<Canvas, 'id' | 'name' | 'updatedAt'> => c !== null)
+    .filter((c): c is CanvasSummary => c !== null)
     .sort((a, b) => b.updatedAt - a.updatedAt)
+}
+
+/** Copy a saved canvas under a new id, so the original is left untouched. */
+export async function duplicateCanvas(id: string, newId: string): Promise<Canvas | undefined> {
+  const source = await loadCanvas(id)
+  if (!source) return undefined
+  const copy: Canvas = {
+    ...source,
+    id: newId,
+    name: `${source.name} copy`,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  }
+  await saveCanvas(copy)
+  return copy
 }
 
 export function rememberLastCanvas(id: string): void {

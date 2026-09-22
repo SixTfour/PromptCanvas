@@ -57,7 +57,7 @@ structured prompt text, not dialogue.
 ```bash
 npm install
 npm run dev      # http://localhost:5173
-npm test         # 73 tests over DAG, composition, diff, context budget and errors
+npm test         # 78 tests over DAG, composition, diff, context budget and errors
 npm run build
 ```
 
@@ -183,12 +183,20 @@ cached; after that nothing is sent anywhere. Your prompts, your canvases and you
 outputs stay in the browser. The CSP in `vercel.json` restricts `connect-src` to
 the Hugging Face CDN and nothing else.
 
-## Persistence
+## Sessions
 
-Canvases live in IndexedDB — localStorage's ~5 MB ceiling is both small for a few
-dozen responses and, when you hit it, a silent quota exception mid-write.
-**Export** writes a `promptcanvas.v1` JSON file, which is also the format the
-starter canvas uses, so there is one schema rather than two that drift.
+Every canvas is saved as you work, and the one you had open is restored when you
+come back — refreshing to restart the inference worker no longer costs you the
+canvas. **Sessions** in the toolbar lists what is saved, newest first, with the
+node and generation counts that tell you which one you actually want. From there
+you can open, duplicate or delete one, or start a new session.
+
+Sessions live in IndexedDB — localStorage's ~5 MB ceiling is both small for a
+few dozen responses and, when you hit it, a silent quota exception mid-write.
+They are per browser: another browser or machine will not see them, and clearing
+site data removes them along with any cached model weights. **Export** writes a
+`promptcanvas.v1` JSON file, which is also the format the starter canvas uses,
+so there is one schema rather than two that drift.
 
 Cached model weights and saved canvases share the same browser storage quota.
 
@@ -219,6 +227,7 @@ src/
     diff.ts               word- and phrase-level diff, merge assembly, meta-prompt
     layout.ts             dagre auto-layout (handles two-parent merges)
     keys.ts               platform-aware shortcut matching
+    time.ts               relative timestamps for the session list
     markdown.ts           toolbar text transforms (pure, so they are testable)
     storage.ts            IndexedDB persistence, export/import
     errors.ts             OOM / WebGPU / download failures in plain English

@@ -17,10 +17,16 @@ export default function App() {
   const loading = useCanvas((s) => s.loading)
   const undo = useCanvas((s) => s.undo)
   const redo = useCanvas((s) => s.redo)
+  const hydrate = useCanvas((s) => s.hydrate)
 
   // Nothing on this machine yet: the first thing to decide is which weights to
   // pull, so ask before showing a canvas whose Run button would do nothing.
   const [showFirstRun, setShowFirstRun] = useState(() => downloadedModels().length === 0)
+
+  // Reopen whatever was last in front of the user, before they touch anything.
+  useEffect(() => {
+    void hydrate()
+  }, [hydrate])
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {

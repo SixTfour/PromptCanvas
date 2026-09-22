@@ -15,7 +15,16 @@ import {
 import { formatError } from '../lib/errors'
 import { layoutCanvas, placeChild } from '../lib/layout'
 import { DEFAULT_MODEL, type ModelId } from '../lib/models'
-import { saveCanvas } from '../lib/storage'
+import {
+  type CanvasSummary,
+  deleteCanvas,
+  duplicateCanvas,
+  getLastCanvasId,
+  listCanvases,
+  loadCanvas,
+  rememberLastCanvas,
+  saveCanvas,
+} from '../lib/storage'
 import type { Canvas, CanvasNode, ContextBlock, PromptNodeData, Run } from '../types'
 
 /** How many steps back you can go before the oldest is dropped. */
@@ -63,6 +72,14 @@ interface CanvasState {
   setCanvas: (c: Canvas) => void
   undo: () => void
   redo: () => void
+
+  /** Reopen the last session on startup. Safe to call once, on mount. */
+  hydrate: () => Promise<void>
+  listSessions: () => Promise<CanvasSummary[]>
+  openSession: (id: string) => Promise<void>
+  duplicateSession: (id: string) => Promise<void>
+  deleteSession: (id: string) => Promise<void>
+  renameSession: (name: string) => void
   select: (id: string | null) => void
   toggleCompare: (id: string) => void
   clearCompare: () => void
@@ -152,8 +169,12 @@ export const useCanvas = create<CanvasState>((set, get) => {
     set({ past, future: [] })
   }
 
+  let hydrated = false
+
   const persist = () => {
-    void saveCanvas(get().canvas).catch(() => {
+    const c = get().canvas
+    rememberLastCanvas(c.id)
+    void saveCanvas(c).catch(() => {
       /* storage is best-effort; export is the durable path */
     })
   }
@@ -189,6 +210,64 @@ export const useCanvas = create<CanvasState>((set, get) => {
     setCanvas: (c) => {
       pushHistory()
       set({ canvas: c, selectedId: c.rootId, compare: [] })
+      persist()
+    },
+
+    /**
+     * Restore the session the user was last in.
+     *
+     * Runs once and only while the canvas is still untouched: replacing what
+     * someone has already started editing would be worse than losing the
+     * restore. History is not recorded, since the restore is not an edit.
+     */
+    hydrate: async () => {
+      if (hydrated) return
+      hydrated = true
+      try {
+        const id = getLastCanvasId()
+        if (!id || id === get().canvas.id) return
+        const saved = await loadCanvas(id)
+        if (!saved || get().past.length > 0) return
+        set({ canvas: saved, selectedId: saved.rootId, compare: [] })
+      } catch {
+        // A failed restore just means starting fresh, which is not worth a notice.
+      }
+    },
+
+    listSessions: () => listCanvases(),
+
+    openSession: async (id) => {
+      const saved = await loadCanvas(id)
+      if (!saved) {
+        set({ notice: { kind: 'error', text: 'That session could not be loaded.' } })
+        return
+      }
+      // Save whatever is open before switching away from it.
+      await saveCanvas(get().canvas).catch(() => undefined)
+      rememberLastCanvas(id)
+      set({ canvas: saved, selectedId: saved.rootId, compare: [], past: [], future: [] })
+    },
+
+    duplicateSession: async (id) => {
+      const copy = await duplicateCanvas(id, `c-${nanoid(8)}`)
+      if (copy) set({ notice: { kind: 'info', text: `Duplicated as "${copy.name}".` } })
+    },
+
+    deleteSession: async (id) => {
+      await deleteCanvas(id)
+      // Deleting the session you are in leaves the canvas on screen but
+      // unsaved; starting a fresh one is less surprising than either keeping a
+      // ghost record or silently re-saving it.
+      if (id === get().canvas.id) {
+        const c = buildStarterCanvas()
+        set({ canvas: layoutCanvas(c), selectedId: c.rootId, compare: [], past: [], future: [] })
+        persist()
+      }
+    },
+
+    renameSession: (name) => {
+      pushHistory('rename')
+      set({ canvas: { ...get().canvas, name, updatedAt: Date.now() } })
       persist()
     },
 
@@ -373,13 +452,15 @@ export const useCanvas = create<CanvasState>((set, get) => {
 
     resetToStarter: () => {
       pushHistory()
+      // Same id: this resets the session's contents rather than creating another.
       set({ canvas: layoutCanvas(buildStarterCanvas()), selectedId: 'n-root', compare: [] })
     },
 
     newCanvas: () => {
-      pushHistory()
       const c = emptyCanvas()
-      set({ canvas: c, selectedId: c.rootId, compare: [] })
+      // A new session starts its own history rather than inheriting the last
+      // one's, so undo cannot walk backwards into a different canvas.
+      set({ canvas: c, selectedId: c.rootId, compare: [], past: [], future: [] })
       persist()
     },
 

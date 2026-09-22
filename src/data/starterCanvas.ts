@@ -1,3 +1,4 @@
+import { nanoid } from 'nanoid'
 import { DEFAULT_MODEL } from '../lib/models'
 import type { Canvas } from '../types'
 
@@ -25,10 +26,14 @@ i am on an iphone 14, safari. it worked last week. this is blocking our store
 from taking orders so its fairly urgent. order ref from the failed attempt is
 NW-88213 if that helps.`
 
-export function buildStarterCanvas(): Canvas {
+/**
+ * `id` is passed in when resetting an existing session, so the reset replaces
+ * that session's content rather than spawning a new saved canvas beside it.
+ */
+export function buildStarterCanvas(id?: string): Canvas {
   const now = Date.now()
   return {
-    id: 'starter-triage',
+    id: id ?? `c-${nanoid(8)}`,
     name: 'Bug report triage',
     rootId: 'n-root',
     createdAt: now,
