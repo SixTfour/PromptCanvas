@@ -312,7 +312,6 @@ export function Inspector() {
               <div key={r.id} className="rounded-md border border-[var(--color-edge)]">
                 <div className="flex items-center gap-2 border-b border-[var(--color-edge)] px-2.5 py-1.5 text-[11px] text-[var(--color-muted)]">
                   <span>sample {i + 1}</span>
-                  {r.demo && <Badge>sample data</Badge>}
                   {r.status === 'loading' && <Badge tone="accent">loading model</Badge>}
                   {r.status === 'streaming' && <Badge tone="accent">generating</Badge>}
                   {r.status === 'error' && <Badge tone="danger">error</Badge>}

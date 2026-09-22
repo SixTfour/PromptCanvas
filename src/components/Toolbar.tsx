@@ -1,46 +1,28 @@
 import { useRef, useState } from 'react'
-import { currentDevice } from '../lib/engine'
+import { currentDevice, loadedModel } from '../lib/engine'
 import { formatError } from '../lib/errors'
-import { DEFAULT_MODEL, MODELS, formatMb } from '../lib/models'
+import { MODELS } from '../lib/models'
 import { downloadJson, exportCanvas, importCanvas } from '../lib/storage'
 import { useCanvas } from '../store/useCanvas'
-import { Badge, Button, Modal } from './ui'
+import { ModelPicker } from './ModelPicker'
+import { Badge, Button } from './ui'
 
 export function Toolbar() {
   const canvas = useCanvas((s) => s.canvas)
-  const mode = useCanvas((s) => s.mode)
-  const setMode = useCanvas((s) => s.setMode)
   const setCanvas = useCanvas((s) => s.setCanvas)
   const relayout = useCanvas((s) => s.relayout)
-  const resetToDemo = useCanvas((s) => s.resetToDemo)
+  const resetToStarter = useCanvas((s) => s.resetToStarter)
   const newCanvas = useCanvas((s) => s.newCanvas)
   const setNotice = useCanvas((s) => s.setNotice)
-  const ensureModel = useCanvas((s) => s.ensureModel)
   const activeModel = useCanvas((s) => s.activeModel)
   const loading = useCanvas((s) => s.loading)
   const running = useCanvas((s) => s.running)
 
-  const [showIntro, setShowIntro] = useState(false)
+  const [showModels, setShowModels] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
-  // Whichever model the root is set to is the one Local mode will pull.
-  const rootModel = canvas.nodes.find((n) => n.id === canvas.rootId)?.data.model ?? DEFAULT_MODEL
-  const spec = MODELS[rootModel]
+  const resident = activeModel ?? loadedModel()
   const device = currentDevice()
-
-  const goLocal = async () => {
-    setShowIntro(false)
-    const ok = await ensureModel(rootModel)
-    if (ok) {
-      setMode('local')
-      setNotice({
-        kind: 'info',
-        text: `${spec.label} is running locally on ${
-          currentDevice() === 'webgpu' ? 'your GPU' : 'CPU'
-        }. Nothing leaves this machine.`,
-      })
-    }
-  }
 
   return (
     <>
@@ -56,15 +38,23 @@ export function Toolbar() {
         </div>
 
         <div className="ml-2 flex items-center gap-1.5">
-          {mode === 'demo' ? (
-            <Badge tone="accent">sample data — nothing is generated</Badge>
+          {resident ? (
+            <button
+              onClick={() => setShowModels(true)}
+              title="Change model"
+              className="rounded hover:opacity-80"
+            >
+              <Badge tone="good">
+                {MODELS[resident].label}
+                {device ? ` · ${device === 'webgpu' ? 'GPU' : 'CPU'}` : ''}
+              </Badge>
+            </button>
           ) : (
-            <Badge tone="good">
-              local — {MODELS[activeModel ?? rootModel].label}
-              {device ? ` on ${device === 'webgpu' ? 'GPU' : 'CPU'}` : ''}
-            </Badge>
+            <button onClick={() => setShowModels(true)} className="rounded hover:opacity-80">
+              <Badge tone="warn">no model loaded</Badge>
+            </button>
           )}
-          {running > 0 && <Badge tone="warn">generating</Badge>}
+          {running > 0 && <Badge tone="accent">generating</Badge>}
         </div>
 
         <div className="ml-auto flex items-center gap-1.5">
@@ -116,94 +106,30 @@ export function Toolbar() {
             }}
           />
 
-          {mode === 'demo' ? (
-            <Button
-              size="sm"
-              variant="primary"
-              disabled={Boolean(loading)}
-              onClick={() => setShowIntro(true)}
-            >
-              {loading ? 'Loading model…' : 'Run it for real'}
-            </Button>
-          ) : (
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => {
-                setMode('demo')
-                setNotice({ kind: 'info', text: 'Back to sample data.' })
-              }}
-              title="Stop using the local model and show the bundled samples"
-            >
-              Sample mode
-            </Button>
-          )}
+          <Button
+            size="sm"
+            variant={resident ? 'ghost' : 'primary'}
+            disabled={Boolean(loading)}
+            onClick={() => setShowModels(true)}
+          >
+            {loading ? 'Downloading…' : 'Models'}
+          </Button>
 
           <Button
             size="sm"
             variant="ghost"
             onClick={() => {
-              resetToDemo()
-              setNotice({ kind: 'info', text: 'Sample canvas restored.' })
+              resetToStarter()
+              setNotice({ kind: 'info', text: 'Starter canvas restored.' })
             }}
-            title="Reload the bundled sample canvas"
+            title="Reload the starter prompts"
           >
             Reset
           </Button>
         </div>
       </header>
 
-      {showIntro && (
-        <Modal title={`Run ${spec.label} in your browser`} onClose={() => setShowIntro(false)}>
-          <div className="space-y-4">
-            <p className="text-[13px] leading-relaxed">
-              This downloads <strong>{formatMb(spec.downloadMb)}</strong> of model weights from
-              Hugging Face, once, and then runs everything on this machine. There is no account, no
-              API key, and no cost — to you or to anyone who opens this page.
-            </p>
-
-            <ul className="space-y-1.5 text-[12px] leading-relaxed text-[var(--color-muted)]">
-              <li>
-                <strong className="text-[var(--color-ink)]">Private by construction.</strong> Your
-                prompts never leave the browser. Nothing is sent anywhere once the weights are
-                fetched, and it works offline afterwards.
-              </li>
-              <li>
-                <strong className="text-[var(--color-ink)]">Cached.</strong> The download happens
-                once per browser. Reloads are instant.
-              </li>
-              <li>
-                <strong className="text-[var(--color-ink)]">Runs on your GPU where possible.</strong>{' '}
-                WebGPU is used if available, with a slower CPU fallback otherwise.
-              </li>
-            </ul>
-
-            <div className="rounded-md border border-[var(--color-warn)]/40 bg-[#3a3218]/30 p-3">
-              <p className="text-[12px] font-semibold text-[var(--color-warn)]">
-                What to expect from {spec.label}
-              </p>
-              <p className="mt-1 text-[12px] leading-relaxed text-[var(--color-muted)]">
-                {spec.caveat}
-              </p>
-              <p className="mt-1.5 text-[12px] leading-relaxed text-[var(--color-muted)]">
-                This is the honest trade for &ldquo;free and private&rdquo;. Branching, diffing and
-                merging all still work, and a small model is unusually sensitive to wording, so
-                prompt changes show up clearly. Just do not read its answers as authoritative.
-                Sample mode shows what a strong model produces for the same prompts.
-              </p>
-            </div>
-
-            <div className="flex gap-2">
-              <Button variant="primary" onClick={() => void goLocal()}>
-                Download and run
-              </Button>
-              <Button variant="ghost" onClick={() => setShowIntro(false)}>
-                Stay on sample data
-              </Button>
-            </div>
-          </div>
-        </Modal>
-      )}
+      {showModels && <ModelPicker onClose={() => setShowModels(false)} />}
     </>
   )
 }

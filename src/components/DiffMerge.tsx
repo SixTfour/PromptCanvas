@@ -40,7 +40,6 @@ export function DiffMerge({
   onClose: () => void
 }) {
   const canvas = useCanvas((s) => s.canvas)
-  const mode = useCanvas((s) => s.mode)
   const addMergeNode = useCanvas((s) => s.addMergeNode)
   const setNotice = useCanvas((s) => s.setNotice)
 
@@ -84,13 +83,6 @@ export function DiffMerge({
   }
 
   const synthesise = async () => {
-    if (mode === 'demo') {
-      setNotice({
-        kind: 'warn',
-        text: 'Synthesising runs the local model. Switch to Local mode first, or pick phrases manually.',
-      })
-      return
-    }
     setSynthesising(true)
     setMerged('')
     try {

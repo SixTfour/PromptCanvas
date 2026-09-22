@@ -51,8 +51,6 @@ export interface Run {
   startedAt?: number
   finishedAt?: number
   stats?: RunStats
-  /** True when the text came from the bundled sample dataset rather than the model. */
-  demo?: boolean
 }
 
 export interface PromptNodeData extends Record<string, unknown> {
@@ -111,5 +109,3 @@ export interface ComposedPrompt {
   sharedPrefixLength: number
   text: string
 }
-
-export type AppMode = 'demo' | 'local'

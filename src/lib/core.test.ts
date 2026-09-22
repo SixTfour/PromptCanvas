@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildDemoCanvas, demoResponseFor } from '../data/demoCanvas'
+import { buildStarterCanvas } from '../data/starterCanvas'
 import { ancestorChain, composePrompt, descendantsOf, parentsOf } from './compose'
 import {
   alignPhrases,
@@ -19,15 +19,47 @@ import {
   estimateTokens,
 } from './models'
 
-const demo = buildDemoCanvas()
+const starter = buildStarterCanvas()
+
+/**
+ * The starter canvas ships two sibling branches and no merge — merging is
+ * something the user does. DAG behaviour still needs covering, so the tests
+ * build the merge node the way the store would.
+ */
+const withMerge = {
+  ...starter,
+  nodes: [
+    ...starter.nodes,
+    {
+      id: 'n-merged',
+      type: 'merge' as const,
+      position: { x: 0, y: 0 },
+      data: {
+        title: 'Merged',
+        mergedFrom: ['n-terse', 'n-severity'] as [string, string],
+        blocks: [
+          { id: 'b-m', label: 'merged', kind: 'correction' as const, enabled: true, text: 'Do both.' },
+        ],
+        model: DEFAULT_MODEL,
+        maxNewTokens: 256,
+        runs: [],
+      },
+    },
+  ],
+  edges: [
+    ...starter.edges,
+    { id: 'e-tm', source: 'n-terse', target: 'n-merged', kind: 'merge' as const },
+    { id: 'e-sm', source: 'n-severity', target: 'n-merged', kind: 'merge' as const },
+  ],
+}
 
 describe('DAG traversal', () => {
   it('walks a plain branch root-first', () => {
-    expect(ancestorChain(demo, 'n-terse')).toEqual(['n-root', 'n-terse'])
+    expect(ancestorChain(starter, 'n-terse')).toEqual(['n-root', 'n-terse'])
   })
 
   it('reaches a merge node through both parents without duplicating the root', () => {
-    const chain = ancestorChain(demo, 'n-merged')
+    const chain = ancestorChain(withMerge, 'n-merged')
     expect(chain).toContain('n-root')
     expect(chain).toContain('n-terse')
     expect(chain).toContain('n-severity')
@@ -39,19 +71,22 @@ describe('DAG traversal', () => {
   })
 
   it('reports both parents of a merge node', () => {
-    expect(parentsOf(demo, 'n-merged').sort()).toEqual(['n-severity', 'n-terse'])
+    expect(parentsOf(withMerge, 'n-merged').sort()).toEqual(['n-severity', 'n-terse'])
   })
 
   it('finds descendants across the merge join', () => {
-    expect(descendantsOf(demo, 'n-root')).toEqual(
+    expect(descendantsOf(withMerge, 'n-root')).toEqual(
       new Set(['n-terse', 'n-severity', 'n-merged']),
     )
   })
 
   it('does not hang on a cycle', () => {
     const cyclic = {
-      ...demo,
-      edges: [...demo.edges, { id: 'bad', source: 'n-merged', target: 'n-root', kind: 'branch' as const }],
+      ...withMerge,
+      edges: [
+        ...withMerge.edges,
+        { id: 'bad', source: 'n-merged', target: 'n-root', kind: 'branch' as const },
+      ],
     }
     expect(() => ancestorChain(cyclic, 'n-merged')).not.toThrow()
   })
@@ -59,28 +94,28 @@ describe('DAG traversal', () => {
 
 describe('prompt composition', () => {
   it('inherits the root system prompt and instruction down a branch', () => {
-    const c = composePrompt(demo, 'n-terse')
+    const c = composePrompt(starter, 'n-terse')
     expect(c.system).toContain('engineering triage assistant')
     expect(c.instruction).toBe('Turn the bug report into a triaged engineering ticket.')
   })
 
   it('marks inherited blocks and includes the branch own block last', () => {
-    const c = composePrompt(demo, 'n-terse')
+    const c = composePrompt(starter, 'n-terse')
     expect(c.blocks[0].inherited).toBe(true)
     expect(c.blocks.at(-1)?.inherited).toBe(false)
     expect(c.blocks.at(-1)?.kind).toBe('correction')
   })
 
   it('puts the cache breakpoint at the end of the shared prefix', () => {
-    const c = composePrompt(demo, 'n-terse')
+    const c = composePrompt(starter, 'n-terse')
     // One inherited block (the bug report) is shared with the sibling branch.
     expect(c.sharedPrefixLength).toBe(1)
     expect(c.blocks.slice(0, c.sharedPrefixLength).every((b) => b.inherited)).toBe(true)
   })
 
   it('gives two siblings an identical shared prefix', () => {
-    const a = composePrompt(demo, 'n-terse')
-    const b = composePrompt(demo, 'n-severity')
+    const a = composePrompt(starter, 'n-terse')
+    const b = composePrompt(starter, 'n-severity')
     const prefixA = a.blocks.slice(0, a.sharedPrefixLength).map((x) => x.text)
     const prefixB = b.blocks.slice(0, b.sharedPrefixLength).map((x) => x.text)
     expect(prefixA).toEqual(prefixB)
@@ -88,8 +123,8 @@ describe('prompt composition', () => {
 
   it('excludes disabled blocks from the composed text', () => {
     const off = {
-      ...demo,
-      nodes: demo.nodes.map((n) =>
+      ...starter,
+      nodes: starter.nodes.map((n) =>
         n.id === 'n-root'
           ? { ...n, data: { ...n.data, blocks: n.data.blocks.map((b) => ({ ...b, enabled: false })) } }
           : n,
@@ -137,8 +172,8 @@ describe('phrase diff and merge', () => {
 
 describe('layout', () => {
   it('lays out a DAG with a two-parent merge without losing nodes', () => {
-    const out = layoutCanvas(demo)
-    expect(out.nodes).toHaveLength(demo.nodes.length)
+    const out = layoutCanvas(withMerge)
+    expect(out.nodes).toHaveLength(withMerge.nodes.length)
     // The merge must sit to the right of both of its parents.
     const pos = Object.fromEntries(out.nodes.map((n) => [n.id, n.position]))
     expect(pos['n-merged'].x).toBeGreaterThan(pos['n-terse'].x)
@@ -147,39 +182,16 @@ describe('layout', () => {
 
   it('tolerates an edge pointing at a deleted node', () => {
     const broken = {
-      ...demo,
-      edges: [...demo.edges, { id: 'x', source: 'n-root', target: 'gone', kind: 'branch' as const }],
+      ...starter,
+      edges: [
+        ...starter.edges,
+        { id: 'x', source: 'n-root', target: 'gone', kind: 'branch' as const },
+      ],
     }
     expect(() => layoutCanvas(broken)).not.toThrow()
   })
 })
 
-describe('demo mode response matching', () => {
-  const textFor = (id: string) => composePrompt(demo, id).text
-
-  it('resolves every node in the bundled canvas', () => {
-    for (const n of demo.nodes) {
-      expect(demoResponseFor(textFor(n.id)), `no canned response for ${n.id}`).not.toBeNull()
-    }
-  })
-
-  it('gives each branch a distinct response', () => {
-    const root = demoResponseFor(textFor('n-root'))
-    const terse = demoResponseFor(textFor('n-terse'))
-    const sev = demoResponseFor(textFor('n-severity'))
-    const merged = demoResponseFor(textFor('n-merged'))
-    expect(new Set([root, terse, sev, merged]).size).toBe(4)
-  })
-
-  it('matches the merged node on both corrections, not just the first', () => {
-    expect(demoResponseFor(textFor('n-merged'))).toBe(demoResponseFor(textFor('n-merged')))
-    expect(demoResponseFor(textFor('n-merged'))).not.toBe(demoResponseFor(textFor('n-terse')))
-  })
-
-  it('returns null for a prompt the dataset does not cover', () => {
-    expect(demoResponseFor('write me a haiku about otters')).toBeNull()
-  })
-})
 
 describe('local model registry', () => {
   it('orders the size markers from smallest to largest model', () => {
@@ -217,7 +229,7 @@ describe('context budget', () => {
 
   it('flags the bundled sample branches as safe on the default model', () => {
     for (const id of ['n-root', 'n-terse', 'n-severity', 'n-merged']) {
-      const c = composePrompt(demo, id)
+      const c = composePrompt(starter, id)
       const tokens = estimateTokens(c.text) + estimateTokens(c.system)
       const p = contextPressure(DEFAULT_MODEL, tokens, 256)
       expect(p.level, `${id} overflows the default model's window`).not.toBe('over')

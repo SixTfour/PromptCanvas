@@ -54,7 +54,7 @@ export function getLastCanvasId(): string | null {
 
 /**
  * Export a canvas as JSON. This doubles as the sharing format and as the shape
- * the bundled demo datasets are authored in, so there is one schema to maintain
+ * the bundled starter canvas is authored in, so there is one schema to maintain
  * rather than two that drift.
  */
 export function exportCanvas(canvas: Canvas): string {

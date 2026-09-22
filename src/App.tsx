@@ -1,9 +1,11 @@
 import { ReactFlowProvider } from '@xyflow/react'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { CanvasView } from './components/Canvas'
 import { CompareTray } from './components/CompareTray'
 import { Inspector } from './components/Inspector'
+import { ModelPicker } from './components/ModelPicker'
 import { Toolbar } from './components/Toolbar'
+import { downloadedModels } from './lib/engine'
 import { formatMb } from './lib/models'
 import { useCanvas } from './store/useCanvas'
 
@@ -12,6 +14,10 @@ export default function App() {
   const setNotice = useCanvas((s) => s.setNotice)
   const compare = useCanvas((s) => s.compare)
   const loading = useCanvas((s) => s.loading)
+
+  // Nothing on this machine yet: the first thing to decide is which weights to
+  // pull, so ask before showing a canvas whose Run button would do nothing.
+  const [showFirstRun, setShowFirstRun] = useState(() => downloadedModels().length === 0)
 
   useEffect(() => {
     if (!notice) return
@@ -65,6 +71,8 @@ export default function App() {
           <Inspector />
         </aside>
       </div>
+
+      {showFirstRun && <ModelPicker firstRun onClose={() => setShowFirstRun(false)} />}
 
       {notice && (
         <div

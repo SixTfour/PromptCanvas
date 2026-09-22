@@ -31,6 +31,47 @@ export interface GenerateHandlers {
 
 type Listener = (p: LoadProgress | null) => void
 
+/**
+ * Which models this browser has successfully downloaded.
+ *
+ * transformers.js caches weights in Cache Storage, but its key layout is an
+ * implementation detail we should not probe. A local record of what has loaded
+ * at least once is honest about what it is: a hint for the UI, not a guarantee
+ * the cache is still warm. A cleared cache just means one more download.
+ */
+const LS_DOWNLOADED = 'promptcanvas.downloadedModels'
+
+export function downloadedModels(): ModelId[] {
+  try {
+    const raw = localStorage.getItem(LS_DOWNLOADED)
+    return raw ? (JSON.parse(raw) as ModelId[]) : []
+  } catch {
+    return []
+  }
+}
+
+export function isDownloaded(modelId: ModelId): boolean {
+  return downloadedModels().includes(modelId)
+}
+
+function markDownloaded(modelId: ModelId) {
+  try {
+    const all = new Set(downloadedModels())
+    all.add(modelId)
+    localStorage.setItem(LS_DOWNLOADED, JSON.stringify([...all]))
+  } catch {
+    // Private browsing and blocked storage are fine; this is only a hint.
+  }
+}
+
+export function forgetDownloaded(): void {
+  try {
+    localStorage.removeItem(LS_DOWNLOADED)
+  } catch {
+    /* nothing to do */
+  }
+}
+
 let worker: Worker | null = null
 let readyModel: ModelId | null = null
 let device: 'webgpu' | 'wasm' | null = null
@@ -54,6 +95,7 @@ function ensureWorker(): Worker {
       case 'ready': {
         readyModel = msg.modelId as ModelId
         device = msg.device as 'webgpu' | 'wasm'
+        markDownloaded(readyModel)
         notify(null)
         pending.get('@load')?.resolve({
           promptTokens: 0,
@@ -114,6 +156,11 @@ export function currentDevice(): 'webgpu' | 'wasm' | null {
 
 export function isModelReady(modelId: ModelId = DEFAULT_MODEL): boolean {
   return readyModel === modelId
+}
+
+/** The model currently resident in the worker, if any. */
+export function loadedModel(): ModelId | null {
+  return readyModel
 }
 
 /** Download and initialise a model. Safe to call repeatedly. */

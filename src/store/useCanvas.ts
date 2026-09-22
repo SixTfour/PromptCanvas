@@ -1,6 +1,6 @@
 import { nanoid } from 'nanoid'
 import { create } from 'zustand'
-import { DEMO_UNAVAILABLE_NOTICE, buildDemoCanvas, demoResponseFor } from '../data/demoCanvas'
+import { buildStarterCanvas } from '../data/starterCanvas'
 import { composePrompt } from '../lib/compose'
 import {
   type LoadProgress,
@@ -13,11 +13,10 @@ import { formatError } from '../lib/errors'
 import { layoutCanvas, placeChild } from '../lib/layout'
 import { DEFAULT_MODEL, type ModelId } from '../lib/models'
 import { saveCanvas } from '../lib/storage'
-import type { AppMode, Canvas, CanvasNode, ContextBlock, PromptNodeData, Run } from '../types'
+import type { Canvas, CanvasNode, ContextBlock, PromptNodeData, Run } from '../types'
 
 interface CanvasState {
   canvas: Canvas
-  mode: AppMode
   selectedId: string | null
   /** Node ids pinned into the side-by-side comparison tray. */
   compare: string[]
@@ -29,7 +28,6 @@ interface CanvasState {
   /** Non-fatal messages surfaced as a toast. */
   notice: { kind: 'info' | 'warn' | 'error'; text: string } | null
 
-  setMode: (m: AppMode) => void
   setCanvas: (c: Canvas) => void
   select: (id: string | null) => void
   toggleCompare: (id: string) => void
@@ -42,7 +40,7 @@ interface CanvasState {
   addMergeNode: (aId: string, bId: string, mergedText: string, title?: string) => string
   deleteNode: (id: string) => void
   relayout: () => void
-  resetToDemo: () => void
+  resetToStarter: () => void
   newCanvas: () => void
 
   addBlock: (nodeId: string, block?: Partial<ContextBlock>) => void
@@ -115,8 +113,7 @@ export const useCanvas = create<CanvasState>((set, get) => {
   }
 
   return {
-    canvas: layoutCanvas(buildDemoCanvas()),
-    mode: 'demo',
+    canvas: layoutCanvas(buildStarterCanvas()),
     selectedId: 'n-root',
     compare: [],
     loading: null,
@@ -124,7 +121,6 @@ export const useCanvas = create<CanvasState>((set, get) => {
     running: 0,
     notice: null,
 
-    setMode: (m) => set({ mode: m }),
     setCanvas: (c) => {
       set({ canvas: c, selectedId: c.rootId, compare: [] })
       persist()
@@ -274,8 +270,8 @@ export const useCanvas = create<CanvasState>((set, get) => {
       persist()
     },
 
-    resetToDemo: () => {
-      set({ canvas: layoutCanvas(buildDemoCanvas()), selectedId: 'n-root', compare: [] })
+    resetToStarter: () => {
+      set({ canvas: layoutCanvas(buildStarterCanvas()), selectedId: 'n-root', compare: [] })
     },
 
     newCanvas: () => {
@@ -346,8 +342,7 @@ export const useCanvas = create<CanvasState>((set, get) => {
     },
 
     runNode: async (nodeId, samples = 1) => {
-      const state = get()
-      const canvas = state.canvas
+      const canvas = get().canvas
       const node = canvas.nodes.find((n) => n.id === nodeId)
       if (!node) return
 
@@ -355,42 +350,13 @@ export const useCanvas = create<CanvasState>((set, get) => {
 
       const newRuns: Run[] = Array.from({ length: samples }, () => ({
         id: `r-${nanoid(8)}`,
-        status: state.mode === 'demo' ? ('streaming' as const) : ('loading' as const),
+        status: 'loading' as const,
         text: '',
         model: node.data.model,
         startedAt: Date.now(),
       }))
 
       patchNode(nodeId, (n) => ({ ...n, data: { ...n.data, runs: [...n.data.runs, ...newRuns] } }))
-
-      // Demo mode resolves from the bundled dataset and touches no model at all.
-      if (state.mode === 'demo') {
-        for (const run of newRuns) {
-          const canned = demoResponseFor(prompt.text)
-          if (!canned) {
-            patchRun(nodeId, run.id, {
-              status: 'error',
-              error: DEMO_UNAVAILABLE_NOTICE,
-              finishedAt: Date.now(),
-              demo: true,
-            })
-            continue
-          }
-          const step = Math.max(8, Math.ceil(canned.length / 60))
-          for (let i = 0; i < canned.length; i += step) {
-            patchRun(nodeId, run.id, { text: canned.slice(0, i + step) })
-            await new Promise((r) => setTimeout(r, 16))
-          }
-          patchRun(nodeId, run.id, {
-            status: 'done',
-            text: canned,
-            finishedAt: Date.now(),
-            demo: true,
-          })
-        }
-        persist()
-        return
-      }
 
       // Runs are queued inside the engine, so this loop is sequential by design.
       for (const run of newRuns) {
