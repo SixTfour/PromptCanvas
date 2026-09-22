@@ -49,6 +49,14 @@ export function SessionSidebar() {
     return [live, ...rest].sort((a, b) => b.updatedAt - a.updatedAt)
   }, [saved, canvas])
 
+  /**
+   * The open canvas is listed whether or not it has reached disk yet. Saying so
+   * is better than letting it sit there looking identical to a saved one —
+   * that ambiguity is what makes an extra row impossible to account for.
+   */
+  const unsavedId =
+    saved !== null && !saved.some((s) => s.id === canvas.id) ? canvas.id : null
+
   const visible = useMemo(() => filterSessions(sessions, query), [sessions, query])
 
   if (!open) {
@@ -148,6 +156,7 @@ export function SessionSidebar() {
                 <div className="flex items-center gap-1.5">
                   <span className="truncate text-[12.5px] font-medium">{s.name}</span>
                   {isCurrent && <Badge tone="accent">open</Badge>}
+                  {s.id === unsavedId && <Badge tone="warn">unsaved</Badge>}
                 </div>
                 <div className="mt-0.5 truncate text-[10.5px] text-[#5a6175]">
                   {formatRelativeTime(s.updatedAt)} · {s.nodeCount}{' '}

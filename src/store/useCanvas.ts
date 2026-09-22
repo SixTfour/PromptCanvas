@@ -296,6 +296,13 @@ export const useCanvas = create<CanvasState>((set, get) => {
       } finally {
         // Whatever ended up open, the address bar should name it.
         syncUrl(get().canvas.id, 'replace')
+        // Save it if it is not already a record. The sidebar lists the open
+        // canvas whether or not it has been saved, so without this a first
+        // visit shows a session that does not yet exist on disk — which then
+        // looks like a duplicate the moment a real one is restored.
+        void loadCanvas(get().canvas.id).then((existing) => {
+          if (!existing) persist()
+        })
       }
     },
 
@@ -336,17 +343,34 @@ export const useCanvas = create<CanvasState>((set, get) => {
       if (copy) set({ notice: { kind: 'info', text: `Duplicated as "${copy.name}".` } })
     },
 
+    /**
+     * Delete a session, and leave the user somewhere real.
+     *
+     * Deleting the *open* session used to mint a brand new starter canvas and
+     * save it on the spot, which meant the delete appeared to do nothing: one
+     * record went, another immediately took its place, and the count never
+     * moved. Falling back to the most recent surviving session is what a
+     * person expects, and a fresh canvas is only created when there is
+     * genuinely nothing left to fall back to.
+     */
     deleteSession: async (id) => {
       await deleteCanvas(id)
-      // Deleting the session you are in leaves the canvas on screen but
-      // unsaved; starting a fresh one is less surprising than either keeping a
-      // ghost record or silently re-saving it.
-      if (id === get().canvas.id) {
-        const c = buildStarterCanvas()
-        set({ canvas: layoutCanvas(c), selectedId: c.rootId, compare: [], past: [], future: [] })
-        syncUrl(c.id, 'replace')
-        persist()
+      if (id !== get().canvas.id) return
+
+      const remaining = (await listCanvases()).filter((c) => c.id !== id)
+      const next = remaining[0] ? await loadCanvas(remaining[0].id) : undefined
+
+      if (next) {
+        rememberLastCanvas(next.id)
+        set({ canvas: next, selectedId: next.rootId, compare: [], past: [], future: [] })
+        syncUrl(next.id, 'replace')
+        return
       }
+
+      const c = layoutCanvas(buildStarterCanvas())
+      set({ canvas: c, selectedId: c.rootId, compare: [], past: [], future: [] })
+      syncUrl(c.id, 'replace')
+      persist()
     },
 
     renameSession: (name) => {
