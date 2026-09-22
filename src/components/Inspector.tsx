@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { composePrompt } from '../lib/compose'
+import { readPref, writePref } from '../lib/prefs'
 import {
   MODELS,
   MODEL_IDS,
@@ -14,6 +15,11 @@ import { Markdown } from './Markdown'
 import { MarkdownEditor } from './MarkdownEditor'
 import type { ContextBlock, ModelId } from '../types'
 import { Badge, Button, Input, Label, Segmented, Select } from './ui'
+
+/** How the Composed tab was last read. Remembered, since it is a reading habit. */
+const COMPOSED_VIEW_KEY = 'promptcanvas.composedView'
+const COMPOSED_VIEWS = ['raw', 'rendered'] as const
+type ComposedView = (typeof COMPOSED_VIEWS)[number]
 
 const KINDS: Array<{ value: ContextBlock['kind']; label: string }> = [
   { value: 'context', label: 'context' },
@@ -36,7 +42,9 @@ export function Inspector() {
 
   const [tab, setTab] = useState<'output' | 'prompt' | 'composed'>('output')
   const [copied, setCopied] = useState<string | null>(null)
-  const [composedView, setComposedView] = useState<'raw' | 'rendered'>('raw')
+  const [composedView, setComposedView] = useState<ComposedView>(() =>
+    readPref(COMPOSED_VIEW_KEY, COMPOSED_VIEWS, 'raw'),
+  )
   const [confirmDelete, setConfirmDelete] = useState(false)
   const lastNode = useRef<string | null>(null)
 
@@ -316,7 +324,10 @@ export function Inspector() {
                   wrote is well-formed before spending a generation on it. */}
               <Segmented
                 value={composedView}
-                onChange={setComposedView}
+                onChange={(v) => {
+                  setComposedView(v)
+                  writePref(COMPOSED_VIEW_KEY, v)
+                }}
                 options={[
                   { value: 'raw', label: 'raw' },
                   { value: 'rendered', label: 'rendered' },
