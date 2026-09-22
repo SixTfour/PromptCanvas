@@ -27,6 +27,17 @@ import {
 } from '../lib/storage'
 import type { Canvas, CanvasNode, ContextBlock, PromptNodeData, Run } from '../types'
 
+const LS_SESSIONS_OPEN = 'promptcanvas.sessionsOpen'
+
+/** Open by default, so the rail is discovered rather than hunted for. */
+function readSessionsOpen(): boolean {
+  try {
+    return localStorage.getItem(LS_SESSIONS_OPEN) !== '0'
+  } catch {
+    return true
+  }
+}
+
 /** How many steps back you can go before the oldest is dropped. */
 const HISTORY_LIMIT = 60
 
@@ -66,6 +77,8 @@ interface CanvasState {
   /** Set once a model has finished loading in this session. */
   activeModel: ModelId | null
   running: number
+  /** Whether the sessions rail is expanded. Remembered across visits. */
+  sessionsOpen: boolean
   /** Non-fatal messages surfaced as a toast. */
   notice: { kind: 'info' | 'warn' | 'error'; text: string } | null
 
@@ -80,6 +93,7 @@ interface CanvasState {
   duplicateSession: (id: string) => Promise<void>
   deleteSession: (id: string) => Promise<void>
   renameSession: (name: string) => void
+  setSessionsOpen: (open: boolean) => void
   select: (id: string | null) => void
   toggleCompare: (id: string) => void
   clearCompare: () => void
@@ -203,6 +217,7 @@ export const useCanvas = create<CanvasState>((set, get) => {
     selectedId: 'n-root',
     compare: [],
     loading: null,
+    sessionsOpen: readSessionsOpen(),
     activeModel: null,
     running: 0,
     notice: null,
@@ -235,6 +250,15 @@ export const useCanvas = create<CanvasState>((set, get) => {
     },
 
     listSessions: () => listCanvases(),
+
+    setSessionsOpen: (open) => {
+      try {
+        localStorage.setItem(LS_SESSIONS_OPEN, open ? '1' : '0')
+      } catch {
+        /* a remembered panel state is not worth failing over */
+      }
+      set({ sessionsOpen: open })
+    },
 
     openSession: async (id) => {
       const saved = await loadCanvas(id)

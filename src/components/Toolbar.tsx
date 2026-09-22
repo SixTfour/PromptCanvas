@@ -6,13 +6,14 @@ import { MODELS } from '../lib/models'
 import { downloadJson, exportCanvas, importCanvas } from '../lib/storage'
 import { useCanvas } from '../store/useCanvas'
 import { ModelPicker } from './ModelPicker'
-import { SessionBrowser } from './SessionBrowser'
 import { Badge, Button } from './ui'
 
 export function Toolbar() {
   const canvas = useCanvas((s) => s.canvas)
   const setCanvas = useCanvas((s) => s.setCanvas)
   const renameSession = useCanvas((s) => s.renameSession)
+  const sessionsOpen = useCanvas((s) => s.sessionsOpen)
+  const setSessionsOpen = useCanvas((s) => s.setSessionsOpen)
   const relayout = useCanvas((s) => s.relayout)
   const resetToStarter = useCanvas((s) => s.resetToStarter)
   const setNotice = useCanvas((s) => s.setNotice)
@@ -25,7 +26,6 @@ export function Toolbar() {
   const canRedo = useCanvas((s) => s.future.length > 0)
 
   const [showModels, setShowModels] = useState(false)
-  const [showSessions, setShowSessions] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const resident = activeModel ?? loadedModel()
@@ -95,10 +95,10 @@ export function Toolbar() {
           <Button
             size="sm"
             variant="ghost"
-            onClick={() => setShowSessions(true)}
-            title="Browse and reopen saved sessions"
+            onClick={() => setSessionsOpen(!sessionsOpen)}
+            title={sessionsOpen ? 'Hide the sessions panel' : 'Show the sessions panel'}
           >
-            Sessions
+            {sessionsOpen ? 'Hide sessions' : 'Sessions'}
           </Button>
           <Button size="sm" variant="ghost" onClick={relayout} title="Re-run auto-layout">
             Tidy
@@ -161,7 +161,6 @@ export function Toolbar() {
       </header>
 
       {showModels && <ModelPicker onClose={() => setShowModels(false)} />}
-      {showSessions && <SessionBrowser onClose={() => setShowSessions(false)} />}
     </>
   )
 }

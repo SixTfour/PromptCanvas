@@ -19,6 +19,8 @@ import {
   shortcutLabels,
 } from './keys'
 import { layoutCanvas } from './layout'
+import { filterSessions, matchedInBody, matchesQuery } from './search'
+import type { CanvasSummary } from './storage'
 import { formatRelativeTime } from './time'
 import {
   insertLink,
@@ -684,5 +686,56 @@ describe('relative timestamps', () => {
     for (const d of [0, SEC, MIN, HOUR, DAY, 7 * DAY, 40 * DAY, 400 * DAY]) {
       expect(formatRelativeTime(ago(d), NOW).length).toBeGreaterThan(0)
     }
+  })
+})
+
+describe('session search', () => {
+  const session = (over: Partial<CanvasSummary> = {}): CanvasSummary => ({
+    id: 'c1',
+    name: 'Bug report triage',
+    updatedAt: 0,
+    nodeCount: 3,
+    runCount: 2,
+    haystack: 'bug report triage baseline correction: severity checkout spins on iphone safari',
+    ...over,
+  })
+
+  it('matches on the session name', () => {
+    expect(matchesQuery(session(), 'triage')).toBe(true)
+    expect(matchesQuery(session(), 'nonsense')).toBe(false)
+  })
+
+  // The main reason to search prompts: most sessions keep whatever name the
+  // starter gave them, so the name alone rarely tells them apart.
+  it('matches on prompt text the name does not mention', () => {
+    expect(matchesQuery(session(), 'iphone')).toBe(true)
+    expect(matchedInBody(session(), 'iphone')).toBe(true)
+    expect(matchedInBody(session(), 'triage')).toBe(false)
+  })
+
+  it('narrows as you type, rather than widening', () => {
+    expect(matchesQuery(session(), 'safari')).toBe(true)
+    expect(matchesQuery(session(), 'safari severity')).toBe(true)
+    expect(matchesQuery(session(), 'safari android')).toBe(false)
+  })
+
+  it('ignores case and stray whitespace', () => {
+    expect(matchesQuery(session(), '  IPHONE   Safari ')).toBe(true)
+  })
+
+  it('treats an empty query as no filter at all', () => {
+    const all = [session({ id: 'a' }), session({ id: 'b', haystack: 'something else' })]
+    expect(filterSessions(all, '')).toHaveLength(2)
+    expect(filterSessions(all, '   ')).toHaveLength(2)
+    expect(matchedInBody(session(), '')).toBe(false)
+  })
+
+  it('filters a list down to the matches', () => {
+    const all = [
+      session({ id: 'a', haystack: 'alpha prompt' }),
+      session({ id: 'b', haystack: 'beta prompt' }),
+    ]
+    expect(filterSessions(all, 'alpha').map((s) => s.id)).toEqual(['a'])
+    expect(filterSessions(all, 'prompt')).toHaveLength(2)
   })
 })

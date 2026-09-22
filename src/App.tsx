@@ -4,6 +4,7 @@ import { CanvasView } from './components/Canvas'
 import { CompareTray } from './components/CompareTray'
 import { Inspector } from './components/Inspector'
 import { ModelPicker } from './components/ModelPicker'
+import { SessionSidebar } from './components/SessionSidebar'
 import { Toolbar } from './components/Toolbar'
 import { downloadedModels } from './lib/engine'
 import { isRedo, isTypingTarget, isUndo } from './lib/keys'
@@ -86,6 +87,7 @@ export default function App() {
         </div>
       )}
       <div className="flex min-h-0 flex-1">
+        <SessionSidebar />
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="min-h-0 flex-1">
             <ReactFlowProvider>

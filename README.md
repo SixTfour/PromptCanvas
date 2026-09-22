@@ -57,7 +57,7 @@ structured prompt text, not dialogue.
 ```bash
 npm install
 npm run dev      # http://localhost:5173
-npm test         # 78 tests over DAG, composition, diff, context budget and errors
+npm test         # 84 tests over DAG, composition, diff, context budget and errors
 npm run build
 ```
 
@@ -187,9 +187,15 @@ the Hugging Face CDN and nothing else.
 
 Every canvas is saved as you work, and the one you had open is restored when you
 come back — refreshing to restart the inference worker no longer costs you the
-canvas. **Sessions** in the toolbar lists what is saved, newest first, with the
-node and generation counts that tell you which one you actually want. From there
-you can open, duplicate or delete one, or start a new session.
+canvas. A collapsible **left rail** lists what is saved, newest first, with the node and
+generation counts that tell you which one you actually want. Open, duplicate or
+delete one from there, or start a new session. Collapsed it stays as a narrow
+strip rather than vanishing, and the state is remembered.
+
+Search covers **prompt text as well as names**, because most sessions keep
+whatever name the starter gave them and the name alone rarely tells them apart.
+Terms are ANDed, so typing more narrows the list, and a session found only by
+its contents says so.
 
 Sessions live in IndexedDB — localStorage's ~5 MB ceiling is both small for a
 few dozen responses and, when you hit it, a silent quota exception mid-write.
@@ -227,6 +233,7 @@ src/
     diff.ts               word- and phrase-level diff, merge assembly, meta-prompt
     layout.ts             dagre auto-layout (handles two-parent merges)
     keys.ts               platform-aware shortcut matching
+    search.ts             session search over names and prompt text
     time.ts               relative timestamps for the session list
     markdown.ts           toolbar text transforms (pure, so they are testable)
     storage.ts            IndexedDB persistence, export/import

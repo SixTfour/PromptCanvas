@@ -35,7 +35,17 @@ export interface CanvasSummary {
   nodeCount: number
   /** Generated responses across the whole canvas, which is what makes a session worth reopening. */
   runCount: number
+  /**
+   * Lowercased searchable text: the name, node titles and prompt bodies.
+   *
+   * Built here because listing already reads every canvas in full to count
+   * runs, so searching prompt content costs nothing extra. Capped, since the
+   * point is to find a session rather than to index it.
+   */
+  haystack: string
 }
+
+const HAYSTACK_LIMIT = 4000
 
 export async function listCanvases(): Promise<CanvasSummary[]> {
   const allKeys = await keys()
@@ -46,18 +56,31 @@ export async function listCanvases(): Promise<CanvasSummary[]> {
     ids.map(async (id) => {
       const c = await loadCanvas(id)
       if (!c) return null
-      return {
-        id: c.id,
-        name: c.name,
-        updatedAt: c.updatedAt,
-        nodeCount: c.nodes.length,
-        runCount: c.nodes.reduce((n, node) => n + node.data.runs.length, 0),
-      }
+      return { ...summarise(c) }
     }),
   )
   return out
     .filter((c): c is CanvasSummary => c !== null)
     .sort((a, b) => b.updatedAt - a.updatedAt)
+}
+
+/** Everything the session list shows, derived from a canvas in memory. */
+export function summarise(c: Canvas): CanvasSummary {
+  const parts: string[] = [c.name]
+  for (const n of c.nodes) {
+    parts.push(n.data.title)
+    if (n.data.system) parts.push(n.data.system)
+    if (n.data.instruction) parts.push(n.data.instruction)
+    for (const b of n.data.blocks) parts.push(b.label, b.text)
+  }
+  return {
+    id: c.id,
+    name: c.name,
+    updatedAt: c.updatedAt,
+    nodeCount: c.nodes.length,
+    runCount: c.nodes.reduce((n, node) => n + node.data.runs.length, 0),
+    haystack: parts.join(' ').toLowerCase().slice(0, HAYSTACK_LIMIT),
+  }
 }
 
 /** Copy a saved canvas under a new id, so the original is left untouched. */
