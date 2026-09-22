@@ -242,6 +242,14 @@ Pure static build — no serverless functions, no environment variables, no
 secrets. `vercel.json` sets the SPA rewrite, security headers, and a CSP that
 permits WebAssembly and the Hugging Face CDN.
 
+The ONNX Runtime is **served from this origin**, not from a CDN. Left to
+itself, onnxruntime-web dynamically imports its runtime from jsDelivr the first
+time a model loads: fine on a dev server with no CSP, refused on a deployed
+build with one, and a third-party request on every cold start besides. A
+prebuild step copies the runtime out of `node_modules` into `public/ort/`, so
+the files always match the installed version and nothing is fetched from a
+third party.
+
 Be aware the build includes the ONNX Runtime WebAssembly binary (~27 MB, ~6.8 MB
 gzipped). It is only fetched when a visitor actually runs a model on the CPU
 path, not on page load.

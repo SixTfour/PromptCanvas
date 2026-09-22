@@ -33,6 +33,21 @@ import {
 // reload does not re-download them.
 env.allowLocalModels = false
 
+/*
+ * Serve the ONNX Runtime from this origin rather than jsDelivr.
+ *
+ * Left at its default, onnxruntime-web dynamically imports its runtime from a
+ * CDN the first time a model loads. A dev server has no Content Security
+ * Policy so that succeeds; a deployed build with `script-src 'self'` refuses
+ * it, and every backend then reports "no available backend found". It also
+ * meant a third-party request on every cold start, which is hard to square
+ * with a tool whose whole claim is that nothing leaves the machine.
+ *
+ * The files are copied out of node_modules by scripts/copy-ort.mjs, so they
+ * always match the installed version.
+ */
+if (env.backends?.onnx?.wasm) env.backends.onnx.wasm.wasmPaths = '/ort/'
+
 interface Loaded {
   id: ModelId
   tokenizer: PreTrainedTokenizer
