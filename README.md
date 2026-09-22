@@ -267,10 +267,11 @@ src/
     markdown.ts           toolbar text transforms (pure, so they are testable)
     storage.ts            IndexedDB persistence, export/import
     errors.ts             OOM / WebGPU / download failures in plain English
-    core.test.ts          tests for the above
+    *.test.ts             one test file per module, beside the module
   components/             canvas, inspector, compare tray, diff & merge, toolbar
   store/                  zustand store
   data/                   starter canvas (prompts only, no outputs)
+  test/                   canvas fixtures shared by the lib tests
 ```
 
 Inference runs in a Web Worker. On the CPU path generation is a tight
