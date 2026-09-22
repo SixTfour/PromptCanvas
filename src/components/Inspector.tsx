@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { composePrompt } from '../lib/compose'
 import {
   MODELS,
@@ -32,10 +32,35 @@ export function Inspector() {
   const deleteNode = useCanvas((s) => s.deleteNode)
   const addBranch = useCanvas((s) => s.addBranch)
 
-  const [tab, setTab] = useState<'prompt' | 'output' | 'composed'>('prompt')
+  const [tab, setTab] = useState<'output' | 'prompt' | 'composed'>('output')
+  const [copied, setCopied] = useState<string | null>(null)
+  const lastNode = useRef<string | null>(null)
 
   const node = canvas.nodes.find((n) => n.id === selectedId)
   const composed = useMemo(() => (node ? composePrompt(canvas, node.id) : null), [canvas, node])
+
+  /**
+   * Land on whatever the node actually has to show.
+   *
+   * Only on *selection change*, never on re-render: yanking the panel to output
+   * mid-sentence because a stream arrived would be worse than a stale tab.
+   */
+  useEffect(() => {
+    if (!selectedId || selectedId === lastNode.current) return
+    lastNode.current = selectedId
+    const n = canvas.nodes.find((x) => x.id === selectedId)
+    setTab(n && n.data.runs.length > 0 ? 'output' : 'prompt')
+  }, [selectedId, canvas.nodes])
+
+  const copy = async (id: string, text: string) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(id)
+      setTimeout(() => setCopied((c) => (c === id ? null : c)), 1500)
+    } catch {
+      // Clipboard access can be denied; the text is selectable either way.
+    }
+  }
 
   if (!node || !composed) {
     return (
@@ -74,7 +99,7 @@ export function Inspector() {
       </div>
 
       <div className="flex border-b border-[var(--color-edge)] px-2 text-[12px]">
-        {(['prompt', 'output', 'composed'] as const).map((t) => (
+        {(['output', 'prompt', 'composed'] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -304,41 +329,81 @@ export function Inspector() {
         {tab === 'output' && (
           <div className="space-y-3">
             {node.data.runs.length === 0 && (
-              <p className="text-[12px] text-[#5a6175]">
-                No samples yet. Run this node to generate one.
-              </p>
+              <div className="rounded-md border border-dashed border-[var(--color-edge)] px-4 py-10 text-center">
+                <p className="text-[13px] text-[var(--color-muted)]">Nothing generated yet.</p>
+                <p className="mt-1 text-[12px] text-[#5a6175]">
+                  Run this node to see what the prompt produces.
+                </p>
+                <Button
+                  size="sm"
+                  variant="primary"
+                  className="mt-3"
+                  disabled={pressure.level === 'over'}
+                  onClick={() => void runNode(node.id, 1)}
+                >
+                  Run
+                </Button>
+              </div>
             )}
+
             {node.data.runs.map((r, i) => (
               <div key={r.id} className="rounded-md border border-[var(--color-edge)]">
                 <div className="flex items-center gap-2 border-b border-[var(--color-edge)] px-2.5 py-1.5 text-[11px] text-[var(--color-muted)]">
-                  <span>sample {i + 1}</span>
+                  <span>run {i + 1}</span>
                   {r.status === 'loading' && <Badge tone="accent">loading model</Badge>}
                   {r.status === 'streaming' && <Badge tone="accent">generating</Badge>}
                   {r.status === 'error' && <Badge tone="danger">error</Badge>}
                   {r.status === 'cancelled' && <Badge>stopped</Badge>}
-                  {r.stats && (
-                    <span className="ml-auto flex items-center gap-2">
-                      <span>{formatTokens(r.stats.completionTokens)} tok</span>
-                      <span>{r.stats.tokensPerSecond.toFixed(1)}/s</span>
-                      <span>{formatDuration(r.stats.elapsedMs)}</span>
-                    </span>
-                  )}
+                  <span className="ml-auto flex items-center gap-2">
+                    {r.stats && (
+                      <>
+                        <span>{formatTokens(r.stats.completionTokens)} tok</span>
+                        <span>{r.stats.tokensPerSecond.toFixed(1)}/s</span>
+                        <span>{formatDuration(r.stats.elapsedMs)}</span>
+                      </>
+                    )}
+                    {r.text && (
+                      <button
+                        onClick={() => void copy(r.id, r.text)}
+                        className="rounded px-1.5 py-0.5 hover:bg-[var(--color-edge)] hover:text-[var(--color-ink)]"
+                        title="Copy this output"
+                      >
+                        {copied === r.id ? 'copied' : 'copy'}
+                      </button>
+                    )}
+                  </span>
                 </div>
+
                 {r.error ? (
-                  <p className="whitespace-pre-wrap px-2.5 py-2 text-[12px] leading-relaxed text-[var(--color-danger)]">
+                  <p className="whitespace-pre-wrap px-3 py-2.5 text-[12px] leading-relaxed text-[var(--color-danger)]">
                     {r.error}
                   </p>
                 ) : (
-                  <pre className="max-h-80 overflow-y-auto whitespace-pre-wrap px-2.5 py-2 text-[12px] leading-relaxed">
-                    {r.text || (r.status === 'done' ? '(empty)' : '…')}
-                  </pre>
+                  /* Generated text is the reason this panel exists: full width,
+                     body-copy size, and no inner scroll box to read it through. */
+                  <div className="whitespace-pre-wrap px-3 py-2.5 text-[13px] leading-[1.65] text-[var(--color-ink)]">
+                    {r.text || (
+                      <span className="text-[var(--color-muted)]">
+                        {r.status === 'done' ? '(empty response)' : 'waiting for the first token…'}
+                      </span>
+                    )}
+                    {r.status === 'streaming' && (
+                      <span className="ml-0.5 inline-block h-[14px] w-[7px] translate-y-[2px] animate-pulse bg-[var(--color-accent)]" />
+                    )}
+                  </div>
                 )}
               </div>
             ))}
+
             {node.data.runs.length > 0 && (
-              <Button size="sm" variant="ghost" onClick={() => clearRuns(node.id)}>
-                Clear samples
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="ghost" onClick={() => clearRuns(node.id)}>
+                  Clear runs
+                </Button>
+                <span className="text-[11px] text-[#5a6175]">
+                  Generation is greedy, so an unchanged prompt returns identical text.
+                </span>
+              </div>
             )}
           </div>
         )}

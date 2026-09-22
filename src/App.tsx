@@ -72,7 +72,7 @@ export default function App() {
             </div>
           )}
         </div>
-        <aside className="w-[380px] shrink-0 border-l border-[var(--color-edge)] bg-[var(--color-panel)]">
+        <aside className="w-[440px] shrink-0 border-l border-[var(--color-edge)] bg-[var(--color-panel)]">
           <Inspector />
         </aside>
       </div>

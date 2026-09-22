@@ -17,6 +17,12 @@ node you can return to, run again, and diff against its siblings.
 The canvas is a **DAG, not a tree**: merging two branches creates a new node with
 two incoming edges. Neither parent is modified and no history is destroyed.
 
+Each node on the canvas leads with its **generated text** — that is the only
+high-contrast type on the card, with the title, counters and actions sized to
+stay out of its way. The inspector opens on Output for any node that has been
+run. The prompt that produced it is one tab away, because the thing you spend
+your time reading is the answer, not the instruction.
+
 ## The model
 
 A node is a **composed prompt spec**, not a chat turn:

@@ -8,10 +8,11 @@ import { Badge } from '../ui'
 /**
  * A node on the canvas.
  *
- * Deliberately shows aggregate state rather than full text: how many samples
- * were run, whether they agreed, what they cost. The full prompt and every
- * response live in the inspector and the compare tray, because a canvas whose
- * nodes contain scrollable prose stops being a map.
+ * The generated text is the point of this tool, so it gets the body of the card
+ * and the only high-contrast type on it. Everything else — title, badges,
+ * counters, actions — is chrome sized and coloured to stay out of its way. The
+ * prompt that produced it lives in the inspector; putting it here too would
+ * turn the canvas into a wall of editable text and stop it being a map.
  */
 function PromptNodeInner({ id, data, selected }: NodeProps & { data: PromptNodeData }) {
   const toggleCompare = useCanvas((s) => s.toggleCompare)
@@ -22,17 +23,20 @@ function PromptNodeInner({ id, data, selected }: NodeProps & { data: PromptNodeD
 
   const inCompare = compare.includes(id)
   const runs = data.runs
-  const streaming = runs.some((r) => r.status === 'streaming')
+  const latest = runs.at(-1)
+  const busy = latest?.status === 'streaming' || latest?.status === 'loading'
   const done = runs.filter((r) => r.status === 'done')
-  const errored = runs.filter((r) => r.status === 'error')
-  const lastStats = done.at(-1)?.stats
+  const failed = runs.filter((r) => r.status === 'error')
+  const stats = done.at(-1)?.stats
   const isMerge = Boolean(data.mergedFrom)
 
-  const preview = done.at(-1)?.text ?? runs.at(-1)?.text ?? ''
+  // Prefer the newest completed text, but show a stream in flight as it arrives.
+  const shown = busy ? (latest?.text ?? '') : (done.at(-1)?.text ?? latest?.text ?? '')
+  const errored = latest?.status === 'error' ? latest.error : undefined
 
   return (
     <div
-      className={`w-[280px] rounded-lg border bg-[var(--color-panel)] transition-shadow ${
+      className={`flex w-[320px] flex-col rounded-lg border bg-[var(--color-panel)] transition-shadow ${
         selected
           ? 'border-[var(--color-accent)] shadow-[0_0_0_1px_var(--color-accent)]'
           : 'border-[var(--color-edge)]'
@@ -41,42 +45,77 @@ function PromptNodeInner({ id, data, selected }: NodeProps & { data: PromptNodeD
       <Handle type="target" position={Position.Left} />
       <Handle type="source" position={Position.Right} />
 
-      <div className="flex items-start justify-between gap-2 px-3 pt-2.5 pb-2">
-        <div className="min-w-0">
-          <div className="truncate text-[13px] font-semibold leading-tight">{data.title}</div>
-          <div className="mt-1 flex flex-wrap items-center gap-1">
-            {isMerge && <Badge tone="accent">merge</Badge>}
-            {data.blocks.some((b) => b.kind === 'correction' && b.enabled) && (
-              <Badge tone="warn">correction</Badge>
-            )}
-            {streaming && <Badge tone="accent">running</Badge>}
-            {errored.length > 0 && <Badge tone="danger">{errored.length} failed</Badge>}
-          </div>
-        </div>
-      </div>
-
-      {preview ? (
-        <div className="mx-3 mb-2 max-h-[62px] overflow-hidden rounded bg-[var(--color-canvas)] px-2 py-1.5 text-[11px] leading-snug text-[var(--color-muted)]">
-          {preview.slice(0, 220)}
-          {preview.length > 220 ? '…' : ''}
-        </div>
-      ) : (
-        <div className="mx-3 mb-2 rounded border border-dashed border-[var(--color-edge)] px-2 py-2.5 text-center text-[11px] text-[#5a6175]">
-          not run yet
-        </div>
-      )}
-
-      <div className="flex items-center justify-between border-t border-[var(--color-edge)] px-3 py-1.5 text-[11px] text-[var(--color-muted)]">
-        <span>
-          {done.length} {done.length === 1 ? 'sample' : 'samples'}
-          {lastStats && (
-            <span className="ml-2 text-[#5a6175]">
-              {formatTokens(lastStats.completionTokens)} tok ·{' '}
-              {lastStats.tokensPerSecond.toFixed(1)}/s
-            </span>
+      <div className="flex items-center gap-1.5 px-3 pt-2 pb-1.5">
+        <span className="truncate text-[11px] font-medium uppercase tracking-wide text-[var(--color-muted)]">
+          {data.title}
+        </span>
+        <span className="ml-auto flex shrink-0 items-center gap-1">
+          {isMerge && <Badge tone="accent">merge</Badge>}
+          {data.blocks.some((b) => b.kind === 'correction' && b.enabled) && (
+            <Badge tone="warn">correction</Badge>
           )}
         </span>
-        <div className="flex items-center gap-1">
+      </div>
+
+      {/* The body: output first, largest, highest contrast. */}
+      <div className="mx-3 mb-2 min-h-[132px] rounded border border-[var(--color-edge)]/70 bg-[var(--color-canvas)] p-2.5">
+        {errored ? (
+          <div className="max-h-[128px] overflow-hidden text-[12px] leading-relaxed text-[var(--color-danger)]">
+            {errored}
+          </div>
+        ) : shown ? (
+          /* Clipped with a mask rather than line-clamp: -webkit-line-clamp and
+             pre-wrap disagree about where a line ends, and the fade also reads
+             as "there is more of this" rather than as a hard cut. */
+          <div
+            className="max-h-[128px] overflow-hidden whitespace-pre-wrap text-[12.5px] leading-relaxed text-[var(--color-ink)]"
+            style={{
+              maskImage: 'linear-gradient(to bottom, #000 76%, transparent 100%)',
+              WebkitMaskImage: 'linear-gradient(to bottom, #000 76%, transparent 100%)',
+            }}
+          >
+            {shown}
+            {busy && (
+              <span className="ml-0.5 inline-block h-[13px] w-[7px] translate-y-[2px] animate-pulse bg-[var(--color-accent)]" />
+            )}
+          </div>
+        ) : busy ? (
+          <p className="text-[12px] text-[var(--color-muted)]">
+            {latest?.status === 'loading' ? 'Loading model…' : 'Generating…'}
+          </p>
+        ) : (
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              void runNode(id)
+            }}
+            className="flex h-full min-h-[112px] w-full flex-col items-center justify-center gap-1 rounded text-[12px] text-[#5a6175] hover:bg-[var(--color-edge)]/30 hover:text-[var(--color-ink)]"
+          >
+            <span className="text-[15px]">▷</span>
+            <span>Run to generate</span>
+          </button>
+        )}
+      </div>
+
+      <div className="flex items-center gap-2 border-t border-[var(--color-edge)] px-3 py-1.5 text-[11px] text-[var(--color-muted)]">
+        <span className="truncate">
+          {done.length > 0 ? (
+            <>
+              {done.length} {done.length === 1 ? 'run' : 'runs'}
+              {stats && (
+                <span className="text-[#5a6175]">
+                  {' · '}
+                  {formatTokens(stats.completionTokens)} tok · {stats.tokensPerSecond.toFixed(1)}/s
+                </span>
+              )}
+            </>
+          ) : failed.length > 0 ? (
+            <span className="text-[var(--color-danger)]">{failed.length} failed</span>
+          ) : (
+            'not run'
+          )}
+        </span>
+        <div className="ml-auto flex shrink-0 items-center gap-0.5">
           <button
             className="rounded px-1.5 py-0.5 hover:bg-[var(--color-edge)] hover:text-[var(--color-ink)]"
             title="Branch from this node"
@@ -99,7 +138,7 @@ function PromptNodeInner({ id, data, selected }: NodeProps & { data: PromptNodeD
           >
             {inCompare ? 'pinned' : 'compare'}
           </button>
-          {streaming ? (
+          {busy ? (
             <button
               className="rounded px-1.5 py-0.5 text-[var(--color-danger)] hover:bg-[var(--color-edge)]"
               onClick={(e) => {
@@ -117,7 +156,7 @@ function PromptNodeInner({ id, data, selected }: NodeProps & { data: PromptNodeD
                 void runNode(id)
               }}
             >
-              run
+              {shown ? 'rerun' : 'run'}
             </button>
           )}
         </div>
