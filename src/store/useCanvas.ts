@@ -14,6 +14,7 @@ import {
 } from '../lib/engine'
 import { formatError } from '../lib/errors'
 import { layoutCanvas, placeChild } from '../lib/layout'
+import { mergeBasisFor, mergedBlocks, rebuildSources, rebuiltMergeNode } from '../lib/merge'
 import { DEFAULT_MODEL, type ModelId } from '../lib/models'
 import { sessionIdFromSearch, withSessionParam } from '../lib/url'
 import {
@@ -90,6 +91,13 @@ interface CanvasState {
   selectedId: string | null
   /** Node ids pinned into the side-by-side comparison tray. */
   compare: string[]
+  /**
+   * The merge node a Diff & Merge session will overwrite, if any.
+   *
+   * Set when rebuilding a merge that has fallen behind its branches. Null means
+   * the next merge creates a new node, which is the ordinary case.
+   */
+  mergeTarget: string | null
   /** Null when no model download is in flight. */
   loading: LoadProgress | null
   /** Set once a model has finished loading in this session. */
@@ -117,12 +125,17 @@ interface CanvasState {
   select: (id: string | null) => void
   toggleCompare: (id: string) => void
   clearCompare: () => void
+  /** Pin a stale merge's two sources and aim the next merge at that node. */
+  rebuildMerge: (mergeId: string) => void
+  cancelRebuild: () => void
   setNotice: (n: CanvasState['notice']) => void
 
   updateNodeData: (id: string, patch: Partial<PromptNodeData>) => void
   moveNode: (id: string, position: { x: number; y: number }) => void
   addBranch: (parentId: string, correction?: string) => string
   addMergeNode: (aId: string, bId: string, mergedText: string, title?: string) => string
+  /** Overwrite an existing merge in place, keeping its id, edges and history. */
+  replaceMergeNode: (mergeId: string, mergedText: string) => void
   deleteNode: (id: string) => void
   relayout: () => void
   resetToStarter: () => void
@@ -236,6 +249,7 @@ export const useCanvas = create<CanvasState>((set, get) => {
     future: [],
     selectedId: 'n-root',
     compare: [],
+    mergeTarget: null,
     loading: null,
     sessionsOpen: readSessionsOpen(),
     activeModel: null,
@@ -409,7 +423,29 @@ export const useCanvas = create<CanvasState>((set, get) => {
       const cur = get().compare
       set({ compare: cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id] })
     },
-    clearCompare: () => set({ compare: [] }),
+    clearCompare: () => set({ compare: [], mergeTarget: null }),
+
+    /*
+     * Rebuilding routes through the same compare tray as any other merge
+     * rather than opening a special dialog. The two branches are pinned where
+     * the user can see them, the diff is the one they already know, and the
+     * only thing that differs is where the result lands.
+     */
+    rebuildMerge: (mergeId) => {
+      const sources = rebuildSources(get().canvas, mergeId)
+      if (!sources) {
+        set({
+          notice: {
+            kind: 'warn',
+            text: 'That merge cannot be rebuilt: one of the branches it came from has been deleted.',
+          },
+        })
+        return
+      }
+      set({ compare: [...sources], mergeTarget: mergeId, selectedId: mergeId })
+    },
+
+    cancelRebuild: () => set({ mergeTarget: null }),
     setNotice: (n) => set({ notice: n }),
 
     updateNodeData: (id, patch) => {
@@ -488,15 +524,16 @@ export const useCanvas = create<CanvasState>((set, get) => {
         data: {
           title: title ?? `Merged: ${a.data.title} + ${b.data.title}`,
           mergedFrom: [aId, bId],
-          blocks: [
-            {
-              id: `b-${nanoid(6)}`,
-              label: 'merged correction',
-              kind: 'correction',
-              enabled: true,
-              text: mergedText,
-            },
-          ],
+          // What the merge was built from, so a later edit to either branch
+          // can be reported rather than silently ignored.
+          mergeBasis: mergeBasisFor(canvas, [aId, bId]),
+          // Context from both branches is carried through; only the
+          // corrections are merged. A merge supersedes its sources, so
+          // material left behind here is gone from this node's prompt.
+          blocks: mergedBlocks(canvas, [aId, bId], mergedText, {
+            id: `b-${nanoid(6)}`,
+            label: 'merged correction',
+          }),
           model: a.data.model,
           maxNewTokens: a.data.maxNewTokens,
           runs: [],
@@ -517,6 +554,29 @@ export const useCanvas = create<CanvasState>((set, get) => {
       })
       persist()
       return id
+    },
+
+    /*
+     * Overwrites the merged block rather than creating a second merge node.
+     * A rebuild is the same decision made again with newer information, so it
+     * belongs at the same place in the graph — the node keeps its id, its
+     * edges, its position and its run history, and downstream branches stay
+     * attached to it.
+     */
+    replaceMergeNode: (mergeId, mergedText) => {
+      const canvas = get().canvas
+      const rebuilt = rebuiltMergeNode(canvas, mergeId, mergedText)
+      if (!rebuilt) return
+      pushHistory()
+      const nodes = canvas.nodes.map((n) => (n.id === mergeId ? rebuilt : n))
+      set({
+        canvas: { ...canvas, nodes, updatedAt: Date.now() },
+        mergeTarget: null,
+        compare: [],
+        selectedId: mergeId,
+        notice: { kind: 'info', text: 'Merge rebuilt from the current branches.' },
+      })
+      persist()
     },
 
     deleteNode: (id) => {
@@ -583,7 +643,10 @@ export const useCanvas = create<CanvasState>((set, get) => {
             ...n.data.blocks,
             {
               id: `b-${nanoid(6)}`,
-              label: block?.label ?? 'context',
+              // Left empty so the heading tracks the kind until the user names
+              // it. A default of 'context' let a renamed label disagree with
+              // the kind, which is what actually decides how the block renders.
+              label: block?.label ?? '',
               kind: block?.kind ?? 'context',
               enabled: block?.enabled ?? true,
               text: block?.text ?? '',

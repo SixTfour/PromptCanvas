@@ -9,7 +9,7 @@ import type { Canvas } from '../types'
  * Nothing here is pre-generated, so whatever appears on screen was produced by
  * the model on this machine. Dropping someone onto a blank canvas would make
  * them invent a scenario before they could try the tool, so the starter sets up
- * one worth branching — a baseline plus two competing trace corrections, ready
+ * one worth branching — a baseline plus two competing corrections, ready
  * to run, compare and merge.
  *
  * Delete it with "New" at any time.

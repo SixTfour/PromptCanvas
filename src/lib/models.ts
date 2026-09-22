@@ -99,6 +99,23 @@ export const MODELS: Record<ModelId, ModelSpec> = {
 
 export const MODEL_IDS = Object.keys(MODELS) as ModelId[]
 
+export function isKnownModel(id: unknown): id is ModelId {
+  return typeof id === 'string' && id in MODELS
+}
+
+/**
+ * The spec for a model id, falling back to the default for anything unknown.
+ *
+ * Canvases are saved to IndexedDB and outlive the registry that wrote them.
+ * A session created against a model that no longer ships — an earlier hosted
+ * one, or a variant since dropped — used to index straight into `undefined`
+ * and take the inspector down with it. Reading a stale id is not exceptional
+ * here, it is the normal cost of persistence.
+ */
+export function specFor(model: ModelId): ModelSpec {
+  return MODELS[model] ?? MODELS[DEFAULT_MODEL]
+}
+
 export const DEFAULT_MODEL: ModelId = 'HuggingFaceTB/SmolLM-135M-Instruct'
 
 export function formatTokens(n: number): string {
@@ -138,7 +155,7 @@ export function contextPressure(
   promptTokens: number,
   maxNewTokens: number,
 ): { used: number; limit: number; ratio: number; level: 'ok' | 'tight' | 'over' } {
-  const limit = MODELS[model].contextTokens
+  const limit = specFor(model).contextTokens
   const used = promptTokens + maxNewTokens
   const ratio = used / limit
   return {
@@ -175,7 +192,7 @@ export function dtypeCandidates(
   supportsF16: boolean,
   verified?: Dtype | null,
 ): Dtype[] {
-  const listed = MODELS[model].dtypes[backend]
+  const listed = specFor(model).dtypes[backend]
   const usable =
     backend === 'webgpu' && !supportsF16
       ? listed.filter((d) => !HALF_PRECISION.includes(d))
@@ -232,7 +249,7 @@ export function effectiveMaxNewTokens(
   setting: MaxNewTokens,
   minimum = 16,
 ): number {
-  const limit = MODELS[model].contextTokens
+  const limit = specFor(model).contextTokens
   const available = limit - promptTokens - AUTO_MARGIN
   const capped = setting === 'auto' ? available : Math.min(setting, available)
   // Never zero or negative: a prompt that fills the window is reported by
@@ -242,5 +259,5 @@ export function effectiveMaxNewTokens(
 
 /** The largest response this model could ever produce, ignoring the prompt. */
 export function modelMaxNewTokens(model: ModelId): number {
-  return MODELS[model].contextTokens
+  return specFor(model).contextTokens
 }

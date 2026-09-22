@@ -1,6 +1,7 @@
 import { Handle, Position, type NodeProps } from '@xyflow/react'
 import { memo } from 'react'
 import { formatTokens } from '../../lib/models'
+import { isMergeStale } from '../../lib/merge'
 import { useCanvas } from '../../store/useCanvas'
 import type { PromptNodeData } from '../../types'
 import { Markdown } from '../Markdown'
@@ -22,7 +23,12 @@ function PromptNodeInner({ id, data, selected }: NodeProps & { data: PromptNodeD
   const runNode = useCanvas((s) => s.runNode)
   const cancelNode = useCanvas((s) => s.cancelNode)
 
+  const canvas = useCanvas((s) => s.canvas)
+
   const inCompare = compare.includes(id)
+  // A merged node ignores its parents' blocks by design, so divergence has to
+  // be shown rather than inferred from the prompt.
+  const stale = isMergeStale(canvas, id)
   const runs = data.runs
   const latest = runs.at(-1)
   const busy = latest?.status === 'streaming' || latest?.status === 'loading'
@@ -52,6 +58,11 @@ function PromptNodeInner({ id, data, selected }: NodeProps & { data: PromptNodeD
         </span>
         <span className="ml-auto flex shrink-0 items-center gap-1">
           {isMerge && <Badge tone="accent">merge</Badge>}
+          {stale && (
+            <span title="A branch this was merged from has changed since. Select this node to rebuild it.">
+              <Badge tone="danger">out of date</Badge>
+            </span>
+          )}
           {data.blocks.some((b) => b.kind === 'correction' && b.enabled) && (
             <Badge tone="warn">correction</Badge>
           )}

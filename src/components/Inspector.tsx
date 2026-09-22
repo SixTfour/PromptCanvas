@@ -14,6 +14,7 @@ import {
   formatMb,
   formatTokens,
 } from '../lib/models'
+import { staleMergeSources } from '../lib/merge'
 import { useCanvas } from '../store/useCanvas'
 import { Markdown } from './Markdown'
 import { MarkdownEditor } from './MarkdownEditor'
@@ -32,10 +33,26 @@ const TOKEN_PRESETS = [128, 256, 512, 1024, 2048] as const
 /** Enough to be a real answer; below this the model is cut off mid-sentence. */
 const MIN_NEW_TOKENS = 16
 
-const KINDS: Array<{ value: ContextBlock['kind']; label: string }> = [
-  { value: 'context', label: 'context' },
-  { value: 'correction', label: 'trace correction' },
-  { value: 'example', label: 'example' },
+/**
+ * The two things a block can be, and what each one does to the prompt.
+ *
+ * Kept to two because a third that behaved identically to `context` was a
+ * control with no effect. The explanation lives here rather than in a tooltip:
+ * this is the only setting in the panel that changes what the model receives,
+ * and it was previously the least visible one in it.
+ */
+const KINDS: Array<{ value: ContextBlock['kind']; label: string; blurb: string }> = [
+  {
+    value: 'context',
+    label: 'context',
+    blurb: 'Material to read. Sent as written, under its heading.',
+  },
+  {
+    value: 'correction',
+    label: 'correction',
+    blurb:
+      'An instruction to obey. Sent with a line telling the model it overrides anything above it that conflicts — without which small models read it and narrate straight past it.',
+  },
 ]
 
 export function Inspector() {
@@ -43,6 +60,7 @@ export function Inspector() {
   const selectedId = useCanvas((s) => s.selectedId)
   const update = useCanvas((s) => s.updateNodeData)
   const addBlock = useCanvas((s) => s.addBlock)
+  const rebuildMerge = useCanvas((s) => s.rebuildMerge)
   const updateBlock = useCanvas((s) => s.updateBlock)
   const removeBlock = useCanvas((s) => s.removeBlock)
   const runNode = useCanvas((s) => s.runNode)
@@ -104,6 +122,12 @@ export function Inspector() {
     (r) => r.status === 'streaming' || r.status === 'loading',
   )
   const inherited = composed.blocks.filter((b) => b.inherited)
+  // Named rather than counted: "a branch changed" is not actionable, "Terse
+  // changed" tells you which one to go and look at.
+  const staleSources = staleMergeSources(canvas, node.id).map((id) => ({
+    id,
+    title: canvas.nodes.find((n) => n.id === id)?.data.title ?? id,
+  }))
   const childCount = canvas.edges.filter((e) => e.source === node.id).length
   const spec = MODELS[node.data.model]
 
@@ -166,6 +190,24 @@ export function Inspector() {
               </div>
             )}
 
+            {staleSources.length > 0 && (
+              <div className="rounded-md border border-[var(--color-danger)]/50 bg-[var(--color-danger)]/10 p-2.5 text-[12px] leading-relaxed text-[var(--color-ink)]">
+                <strong className="font-semibold">Out of date.</strong>{' '}
+                {staleSources.length === 2 ? 'Both branches this was merged from have' : (
+                  <>
+                    <em>{staleSources[0]?.title}</em> has
+                  </>
+                )}{' '}
+                changed since the merge. This node composes from the merged block alone, so those
+                edits are not in its prompt.
+                <div className="mt-2">
+                  <Button size="sm" variant="primary" onClick={() => rebuildMerge(node.id)}>
+                    Rebuild from current branches
+                  </Button>
+                </div>
+              </div>
+            )}
+
             {inherited.length > 0 && (
               <div>
                 <Label>Inherited from ancestors ({inherited.length})</Label>
@@ -194,9 +236,16 @@ export function Inspector() {
                 </Button>
               </div>
               <div className="space-y-3">
-                {node.data.blocks.length === 0 && (
+                {node.data.blocks.length === 0 ? (
                   <p className="text-[12px] text-[#5a6175]">
-                    No blocks. Add a trace correction to make this branch differ from its parent.
+                    No blocks. Add a correction to make this branch differ from its parent.
+                  </p>
+                ) : (
+                  <p className="-mt-1 text-[11px] leading-relaxed text-[#5a6175]">
+                    Each heading is editable and appears verbatim in the prompt. Blocks on this
+                    node are added <em>after</em> everything inherited, so they read as amendments
+                    to it. The dropdown beside each heading decides how the
+                    block is sent, not the name you give it.
                   </p>
                 )}
                 {node.data.blocks.map((b) => (
@@ -212,27 +261,49 @@ export function Inspector() {
                         title="Include in the prompt"
                         className="accent-[var(--color-accent)]"
                       />
+                      {/* The label is not a caption: it is rendered as a
+                          markdown heading above this block in the prompt. The
+                          literal ## makes that legible without a tooltip. */}
+                      <span
+                        className="select-none font-mono text-[12px] text-[var(--color-muted)]"
+                        aria-hidden="true"
+                      >
+                        ##
+                      </span>
                       <input
                         value={b.label}
                         onChange={(e) => updateBlock(node.id, b.id, { label: e.target.value })}
-                        placeholder="label"
-                        className="min-w-0 flex-1 bg-transparent text-[12px] text-[var(--color-ink)] focus:outline-none"
+                        placeholder="heading"
+                        aria-label="Block heading, used in the prompt"
+                        title="Becomes a ## heading above this block in the composed prompt"
+                        className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 py-0.5 text-[12px] font-semibold text-[var(--color-ink)] placeholder:font-normal placeholder:text-[#5a6175] hover:border-[var(--color-edge)] focus:border-[var(--color-accent)] focus:outline-none"
                       />
-                      <select
-                        value={b.kind}
-                        onChange={(e) =>
-                          updateBlock(node.id, b.id, {
-                            kind: e.target.value as ContextBlock['kind'],
-                          })
-                        }
-                        className="rounded border border-[var(--color-edge)] bg-[var(--color-canvas)] px-1 py-0.5 text-[11px]"
+                      {/* Both options on screen at once. As a dropdown this
+                          read as a tag rather than a choice, and people
+                          renamed the heading to "correction" instead of
+                          switching the kind, which changes nothing. */}
+                      <div
+                        role="radiogroup"
+                        aria-label="How this block is sent to the model"
+                        className="flex shrink-0 overflow-hidden rounded border border-[var(--color-edge)]"
                       >
                         {KINDS.map((k) => (
-                          <option key={k.value} value={k.value}>
+                          <button
+                            key={k.value}
+                            role="radio"
+                            aria-checked={b.kind === k.value}
+                            title={k.blurb}
+                            onClick={() => updateBlock(node.id, b.id, { kind: k.value })}
+                            className={`px-1.5 py-0.5 text-[11px] ${
+                              b.kind === k.value
+                                ? 'bg-[var(--color-accent)] text-[var(--color-canvas)]'
+                                : 'text-[var(--color-muted)] hover:text-[var(--color-ink)]'
+                            }`}
+                          >
                             {k.label}
-                          </option>
+                          </button>
                         ))}
-                      </select>
+                      </div>
                       <button
                         onClick={() => removeBlock(node.id, b.id)}
                         className="px-1 text-[var(--color-muted)] hover:text-[var(--color-danger)]"
@@ -251,6 +322,9 @@ export function Inspector() {
                       }
                       rows={b.kind === 'correction' ? 10 : 8}
                     />
+                    <p className="mt-1 text-[10px] leading-relaxed text-[#5a6175]">
+                      {KINDS.find((k) => k.value === b.kind)?.blurb}
+                    </p>
                   </div>
                 ))}
               </div>

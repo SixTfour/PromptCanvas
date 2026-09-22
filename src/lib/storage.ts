@@ -1,4 +1,6 @@
 import { del, get, keys, set } from 'idb-keyval'
+import { mergeBasisFor } from './merge'
+import { DEFAULT_MODEL, isKnownModel } from './models'
 import type { Canvas } from '../types'
 
 /**
@@ -37,20 +39,53 @@ export async function loadCanvas(id: string): Promise<Canvas | undefined> {
 /**
  * Bring an older saved canvas up to date.
  *
- * Response length used to be a fixed 256 on every node, which nobody chose —
- * it was simply the default before length was worked out from the prompt.
- * Those become `'auto'`, so old sessions behave like new ones. Any other number
- * was set deliberately and is left alone.
+ * Three things drift. Response length used to be a fixed 256 on every node,
+ * which nobody chose — it was simply the default before length was derived
+ * from the prompt — so those become `'auto'`. Any other number was deliberate
+ * and is left alone.
+ *
+ * And a node can name a model that no longer ships: this app ran against a
+ * hosted API before it ran locally, and those canvases are still in IndexedDB.
+ * An unknown id is repointed at the default rather than left to index into
+ * nothing the next time something asks for its context window.
+ *
+ * And blocks could once be an `example`, a kind that rendered under a different
+ * heading and was otherwise identical to `context`. Those become `context`,
+ * keeping whatever heading the user had chosen, since an unmapped kind would
+ * compose to `## undefined`.
+ *
+ * Merge nodes also gain a `mergeBasis` if they predate it, taken from the
+ * branches as they stand now. That baseline is a guess — a merge that was
+ * already out of date is recorded as current — but the alternative is either
+ * flagging every old merge or never flagging one again, and neither says
+ * anything true. From this point on, drift is detected.
  */
 export function migrateCanvas(c: Canvas): Canvas {
   const LEGACY_DEFAULT = 256
   let changed = false
   const nodes = c.nodes.map((n) => {
-    if (n.data.maxNewTokens !== LEGACY_DEFAULT) return n
+    const maxNewTokens = n.data.maxNewTokens === LEGACY_DEFAULT ? 'auto' : n.data.maxNewTokens
+    const model = isKnownModel(n.data.model) ? n.data.model : DEFAULT_MODEL
+    const staleKind = n.data.blocks.some((b) => b.kind !== 'context' && b.kind !== 'correction')
+    const blocks = staleKind
+      ? n.data.blocks.map((b) =>
+          b.kind === 'context' || b.kind === 'correction'
+            ? b
+            : { ...b, kind: 'context' as const, label: b.label || 'Example' },
+        )
+      : n.data.blocks
+    if (maxNewTokens === n.data.maxNewTokens && model === n.data.model && !staleKind) return n
     changed = true
-    return { ...n, data: { ...n.data, maxNewTokens: 'auto' as const } }
+    return { ...n, data: { ...n.data, maxNewTokens, model, blocks } }
   })
-  return changed ? { ...c, nodes } : c
+  const withBasis = nodes.map((n) =>
+    n.data.mergedFrom && !n.data.mergeBasis
+      ? { ...n, data: { ...n.data, mergeBasis: mergeBasisFor({ ...c, nodes }, n.data.mergedFrom) } }
+      : n,
+  )
+  if (withBasis.some((n, i) => n !== nodes[i])) changed = true
+
+  return changed ? { ...c, nodes: withBasis } : c
 }
 
 export async function deleteCanvas(id: string): Promise<void> {

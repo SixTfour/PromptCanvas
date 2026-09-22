@@ -12,6 +12,7 @@ import {
 } from '../lib/diff'
 import { generate } from '../lib/engine'
 import { formatError } from '../lib/errors'
+import { carriedContext, correctionText } from '../lib/merge'
 import { useCanvas } from '../store/useCanvas'
 import { MarkdownEditor } from './MarkdownEditor'
 import { Badge, Button, Modal, Segmented } from './ui'
@@ -30,20 +31,31 @@ import { Badge, Button, Modal, Segmented } from './ui'
  *
  * Whichever you use, the result becomes a *new* node with edges from both
  * parents. Nothing is re-parented and no history is destroyed.
+ *
+ * The exception is a rebuild. When `targetId` names an existing merge — one
+ * whose branches have changed underneath it — the result overwrites that node
+ * instead of adding a second one beside it. Same decision, newer information,
+ * same place in the graph.
  */
 export function DiffMerge({
   aId,
   bId,
+  targetId,
   onClose,
 }: {
   aId: string
   bId: string
+  targetId?: string | null
   onClose: () => void
 }) {
   const canvas = useCanvas((s) => s.canvas)
   const addMergeNode = useCanvas((s) => s.addMergeNode)
+  const replaceMergeNode = useCanvas((s) => s.replaceMergeNode)
   const setNotice = useCanvas((s) => s.setNotice)
-
+  const target = targetId ? canvas.nodes.find((n) => n.id === targetId) : undefined
+  // Not merged, but not discarded either: a merge supersedes its sources, so
+  // context left behind would vanish from the merged node's prompt.
+  const carried = carriedContext(canvas, [aId, bId])
   const a = canvas.nodes.find((n) => n.id === aId)!
   const b = canvas.nodes.find((n) => n.id === bId)!
 
@@ -53,13 +65,14 @@ export function DiffMerge({
   const [merged, setMerged] = useState('')
   const [synthesising, setSynthesising] = useState(false)
 
+  /*
+   * Corrections only, on the prompt side. Flattening every kind into one
+   * string diffed one branch's source material against the other's
+   * instructions, and wrote the result back as a correction — so context
+   * came out the far side as something the model was told to obey.
+   */
   const textOf = (node: typeof a) =>
-    source === 'prompts'
-      ? node.data.blocks
-          .filter((x) => x.enabled)
-          .map((x) => x.text)
-          .join('\n\n')
-      : (node.data.runs.at(-1)?.text ?? '')
+    source === 'prompts' ? correctionText(node) : (node.data.runs.at(-1)?.text ?? '')
 
   const aText = useMemo(() => textOf(a), [a, source])
   const bText = useMemo(() => textOf(b), [b, source])
@@ -90,8 +103,8 @@ export function DiffMerge({
       const goal = composePrompt(canvas, aId).instruction
       const text = buildSynthesisPrompt({
         goal,
-        promptA: a.data.blocks.filter((x) => x.enabled).map((x) => x.text).join('\n\n'),
-        promptB: b.data.blocks.filter((x) => x.enabled).map((x) => x.text).join('\n\n'),
+        promptA: correctionText(a),
+        promptB: correctionText(b),
         outputA: a.data.runs.at(-1)?.text,
         outputB: b.data.runs.at(-1)?.text,
       })
@@ -125,7 +138,7 @@ export function DiffMerge({
   const finalText = merged.trim() || picked.trim()
 
   return (
-    <Modal title="Diff & Merge" onClose={onClose} wide>
+    <Modal title={target ? 'Rebuild merge' : 'Diff & Merge'} onClose={onClose} wide>
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <Segmented
           value={source}
@@ -261,7 +274,15 @@ export function DiffMerge({
 
       <div className="mt-4 flex items-center gap-2 border-t border-[var(--color-edge)] pt-3">
         <p className="flex-1 text-[11px] leading-relaxed text-[var(--color-muted)]">
-          Creates a new node with edges from both branches. Neither parent is modified.
+          {carried.length > 0 && (
+            <>
+              Corrections are merged; {carried.length} context block
+              {carried.length === 1 ? '' : 's'} carried through unchanged.{' '}
+            </>
+          )}
+          {target
+            ? `Replaces the merged text on "${target.data.title}", keeping its place in the graph, its edges and its runs. Neither branch is modified.`
+            : 'Creates a new node with edges from both branches. Neither parent is modified.'}
         </p>
         <Button variant="ghost" onClick={onClose}>
           Cancel
@@ -270,11 +291,12 @@ export function DiffMerge({
           variant="primary"
           disabled={!finalText}
           onClick={() => {
-            addMergeNode(aId, bId, finalText)
+            if (target) replaceMergeNode(target.id, finalText)
+            else addMergeNode(aId, bId, finalText)
             onClose()
           }}
         >
-          Create merge node
+          {target ? 'Replace merged node' : 'Create merge node'}
         </Button>
       </div>
     </Modal>

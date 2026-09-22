@@ -18,7 +18,17 @@ export function CompareTray() {
   const clearCompare = useCanvas((s) => s.clearCompare)
   const toggleCompare = useCanvas((s) => s.toggleCompare)
   const runMany = useCanvas((s) => s.runMany)
+  const mergeTarget = useCanvas((s) => s.mergeTarget)
+  const cancelRebuild = useCanvas((s) => s.cancelRebuild)
   const [showMerge, setShowMerge] = useState(false)
+
+  // A rebuild pins the two branches and opens the dialog in one step, so the
+  // tray has to honour that without the user pressing Diff & Merge again.
+  const open = showMerge || Boolean(mergeTarget)
+  const close = () => {
+    setShowMerge(false)
+    cancelRebuild()
+  }
 
   if (compare.length === 0) return null
 
@@ -114,8 +124,13 @@ export function CompareTray() {
         </div>
       </div>
 
-      {showMerge && canMerge && (
-        <DiffMerge aId={nodes[0].id} bId={nodes[1].id} onClose={() => setShowMerge(false)} />
+      {open && canMerge && (
+        <DiffMerge
+          aId={nodes[0].id}
+          bId={nodes[1].id}
+          targetId={mergeTarget}
+          onClose={close}
+        />
       )}
     </>
   )

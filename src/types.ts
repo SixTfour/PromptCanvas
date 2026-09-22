@@ -21,8 +21,16 @@ export interface ContextBlock {
   /** Short human label shown on the node chip, e.g. "focus: perf". */
   label: string
   text: string
-  /** A trace correction is the "here is what you got wrong" snippet that motivated the branch. */
-  kind: 'context' | 'correction' | 'example'
+  /** A correction is the "here is what you got wrong" snippet that motivated the branch. */
+  /**
+   * What the block is for, which decides how it reaches the model.
+   *
+   * `context` is material to read; `correction` is an instruction to obey,
+   * and is rendered with a line saying it overrides what came before it.
+   * There was once an `example` kind, but it did nothing a `context` block
+   * did not, so it was removed rather than left as a control with no effect.
+   */
+  kind: 'context' | 'correction'
   enabled: boolean
 }
 
@@ -70,6 +78,14 @@ export interface PromptNodeData extends Record<string, unknown> {
   runs: Run[]
   /** Set on nodes produced by Diff & Merge, for provenance in the UI. */
   mergedFrom?: [string, string]
+  /**
+   * Fingerprint of each source node's blocks at the moment of the merge.
+   *
+   * A merged node supersedes its sources, so a later edit to a branch changes
+   * nothing about the merged prompt. Without this there would be no way to tell
+   * that the two had diverged. Absent on merges made before it was recorded.
+   */
+  mergeBasis?: Record<string, string>
   collapsed?: boolean
 }
 

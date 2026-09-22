@@ -44,6 +44,32 @@ export function ancestorChain(canvas: Canvas, nodeId: string): string[] {
 }
 
 /**
+ * Nodes whose own blocks a merge in the chain replaces.
+ *
+ * Diff & Merge builds its text from the two source nodes' own blocks, so once
+ * the merged block exists those blocks are in the prompt twice: once as the
+ * originals inherited through the chain, and once folded into the synthesis.
+ * That is not just redundant — the synthesis exists to reconcile two
+ * corrections that disagreed, and leaving the originals above it hands the
+ * model both sides of an argument it was meant to be spared.
+ *
+ * Only the direct sources are superseded. Anything further up the chain was
+ * never shown to the merge and is still genuine inherited context.
+ */
+function supersededBy(map: Map<string, CanvasNode>, chain: string[]): Set<string> {
+  const out = new Set<string>()
+  for (const id of chain) {
+    const n = map.get(id)
+    if (!n?.data.mergedFrom) continue
+    // An emptied merge supersedes nothing; otherwise deleting the merged block
+    // would silently delete both branches' work along with it.
+    if (!n.data.blocks.some((b) => b.enabled)) continue
+    for (const source of n.data.mergedFrom) out.add(source)
+  }
+  return out
+}
+
+/**
  * Build the prompt for a node.
  *
  * `sharedPrefixLength` is the number of leading blocks this node has in common
@@ -54,55 +80,103 @@ export function ancestorChain(canvas: Canvas, nodeId: string): string[] {
 export function composePrompt(canvas: Canvas, nodeId: string): ComposedPrompt {
   const map = nodeMap(canvas)
   const chain = ancestorChain(canvas, nodeId)
-  const self = map.get(nodeId)
 
-  const blocks: ComposedPrompt['blocks'] = []
+  /*
+   * The instruction belongs to the node that declares it, not to the end of
+   * the prompt.
+   *
+   * A branch's blocks are amendments to everything above them — "the last
+   * attempt buried the steps, do this instead" only means something once the
+   * thing being amended has been stated. Rendering the inherited task last
+   * pushed every correction into the middle of the prompt, where it reads as
+   * background rather than as the most recent instruction.
+   *
+   * The chain is root-first and the node itself is last, so the final node
+   * that sets an instruction is the nearest one, and a branch can still
+   * override its parent's framing.
+   */
   let system = ''
   let instruction = ''
+  let instructionOwner: string | null = null
+  for (const id of chain) {
+    const n = map.get(id)
+    if (!n) continue
+    if (n.data.system?.trim()) system = n.data.system.trim()
+    if (n.data.instruction?.trim()) {
+      instruction = n.data.instruction.trim()
+      instructionOwner = id
+    }
+  }
+
+  const blocks: ComposedPrompt['blocks'] = []
+  const sections: string[] = []
   let sharedPrefixLength = 0
+
+  const superseded = supersededBy(map, chain)
 
   for (const id of chain) {
     const n = map.get(id)
     if (!n) continue
-    // The nearest ancestor that sets a system prompt or instruction wins, so a
-    // branch can override the root's framing without restating everything.
-    if (n.data.system?.trim()) system = n.data.system.trim()
-    if (n.data.instruction?.trim()) instruction = n.data.instruction.trim()
 
-    for (const b of n.data.blocks) {
-      if (!b.enabled) continue
-      blocks.push({ ...b, fromNodeId: id, inherited: id !== nodeId })
+    // Skipped for blocks only: a superseded node can still own the task, and
+    // dropping that would leave the prompt with nothing to do.
+    if (!superseded.has(id)) {
+      for (const b of n.data.blocks) {
+        if (!b.enabled) continue
+        blocks.push({ ...b, fromNodeId: id, inherited: id !== nodeId })
+        const body = b.kind === 'correction' ? correctionBody(b.text) : b.text
+        sections.push(renderSection(b.label.trim() || KIND_HEADING[b.kind], body))
+      }
     }
+
+    // Emitted here rather than at the end, so anything a descendant adds lands
+    // after the task it is amending.
+    if (id === instructionOwner && instruction) sections.push(renderSection('Task', instruction))
+
     if (id !== nodeId) sharedPrefixLength = blocks.length
   }
-
-  if (self?.data.instruction?.trim()) instruction = self.data.instruction.trim()
 
   return {
     system,
     blocks,
     instruction,
     sharedPrefixLength,
-    text: renderPromptText(blocks, instruction),
+    text: sections.join(`
+
+`),
   }
+}
+
+/**
+ * What a correction block says before its own text.
+ *
+ * Without it a correction is indistinguishable from context: `## correction`
+ * reads as a section of a document rather than an instruction, and the model
+ * narrates around it. Measured on SmolLM2 1.7B with "fly out of Colorado
+ * Springs instead of Denver" as the correction — the model ignored it under
+ * the bare heading, under a more directive heading, with the correction placed
+ * before the task, and folded into the task itself. This phrasing is the one
+ * that made it comply, so it is the one that ships.
+ *
+ * It is injected, not hidden: the Composed tab shows the prompt verbatim, and
+ * only blocks the user marked as a correction get it.
+ */
+const CORRECTION_PREAMBLE =
+  'Revise your answer so that it follows this, overriding anything above that conflicts:'
+
+function correctionBody(text: string): string {
+  return `${CORRECTION_PREAMBLE}
+${text.trim()}`
+}
+
+/** One `## Heading` section. Block labels are the headings the model sees. */
+function renderSection(heading: string, body: string): string {
+  return `## ${heading}
+${body.trim()}`
 }
 
 const KIND_HEADING: Record<ContextBlock['kind'], string> = {
   context: 'Context',
   correction: 'Correction',
-  example: 'Example',
 }
 
-/** The rendering of a composed prompt's user turn. Internal to composePrompt. */
-function renderPromptText(
-  blocks: Array<Pick<ContextBlock, 'label' | 'text' | 'kind'>>,
-  instruction: string,
-): string {
-  const parts: string[] = []
-  for (const b of blocks) {
-    const heading = b.label.trim() || KIND_HEADING[b.kind]
-    parts.push(`## ${heading}\n${b.text.trim()}`)
-  }
-  if (instruction.trim()) parts.push(`## Task\n${instruction.trim()}`)
-  return parts.join('\n\n')
-}

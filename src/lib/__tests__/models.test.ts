@@ -25,22 +25,28 @@ describe('local model registry', () => {
 })
 
 describe('context budget', () => {
-  // The binding constraint is no longer money, it is the 2048-token window on
-  // SmolLM 135M, which the prompt and the completion share.
+  // Named explicitly rather than via DEFAULT_MODEL: the subject here is how a
+  // 2048-token window behaves, not which model happens to be the default.
+  const TIGHT_WINDOW = 'HuggingFaceTB/SmolLM-135M-Instruct' as const
+
   it('counts generated tokens against the same window as the prompt', () => {
-    const p = contextPressure(DEFAULT_MODEL, 1900, 256)
+    const p = contextPressure(TIGHT_WINDOW, 1900, 256)
     expect(p.limit).toBe(2048)
     expect(p.used).toBe(2156)
     expect(p.level).toBe('over')
   })
 
   it('warns before overflowing rather than only after', () => {
-    expect(contextPressure(DEFAULT_MODEL, 1500, 256).level).toBe('tight')
-    expect(contextPressure(DEFAULT_MODEL, 400, 256).level).toBe('ok')
+    expect(contextPressure(TIGHT_WINDOW, 1500, 256).level).toBe('tight')
+    expect(contextPressure(TIGHT_WINDOW, 400, 256).level).toBe('ok')
   })
 
-  it('flags the bundled sample branches as safe on the default model', () => {
-    for (const id of ['n-root', 'n-terse', 'n-severity', 'n-merged']) {
+  it('fits every starter branch on the default model', () => {
+    // Every node the starter actually ships, so a node that quietly stopped
+    // existing cannot make this pass by having nothing to check.
+    const ids = starter.nodes.map((n) => n.id)
+    expect(ids).toHaveLength(3)
+    for (const id of ids) {
       const c = composePrompt(starter, id)
       const tokens = estimateTokens(c.text) + estimateTokens(c.system)
       const p = contextPressure(DEFAULT_MODEL, tokens, 256)

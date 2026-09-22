@@ -49,15 +49,36 @@ ROOT
 ```
 
 The prompt is built by walking root → node and concatenating every enabled block
-along the way. That is what makes Diff & Merge meaningful: you are diffing
-structured prompt text, not dialogue.
+along the way, each under its own `##` heading, with the task emitted at the node
+that declares it so descendant blocks land after the thing they amend. That is
+what makes Diff & Merge meaningful: you are diffing structured prompt text, not
+dialogue.
+
+A block is one of two things, and the choice is the only setting in the panel
+that changes what the model receives:
+
+- **context** — material to read. Sent as written, under its heading.
+- **correction** — an instruction to obey. Sent with a line telling the model it
+  overrides anything above it that conflicts.
+
+(There was a third, `example`, which rendered under a different heading and was
+otherwise identical to `context`. It was removed rather than left as a control
+with no effect; saved canvases holding one migrate to `context` on load, keeping
+the heading.)
+
+That override line earns its place. Asked to plan a trip and then corrected to
+depart from a different airport, SmolLM2 1.7B ignored the correction under a bare
+`## correction` heading, under a more directive heading, with the correction moved
+ahead of the task, and with it folded into the task itself — and honoured it only
+once the block said plainly that it overrode what came before. The injection is
+visible rather than magic: the Composed tab shows the prompt verbatim.
 
 ## Running it
 
 ```bash
 npm install
 npm run dev      # http://localhost:5173
-npm test         # 125 tests over DAG, composition, diff, context budget and errors
+npm test         # 182 tests over DAG, composition, diff, context budget and errors
 npm run build
 ```
 
@@ -196,6 +217,39 @@ Two ways to build the merged prompt:
   [`src/lib/diff.ts`](src/lib/diff.ts), visible and editable. On a 135M model
   expect this to be weak; picking phrases is the reliable path.
 
+Only **corrections** are merged. Flattening every block into one string diffed
+one branch's source material against the other's instructions and wrote the
+result back as a single correction — so a context block came out the far side as
+something the model was told to obey, override line and all. Context blocks are
+instead carried into the merged node unchanged, de-duplicated where both branches
+hold the same material, and placed ahead of the merged correction so it reads as
+an amendment to them. They cannot simply be left behind, because of what follows.
+
+Either way the merge is built from the two branches' *own* blocks, so the merged
+node supersedes them: composing its prompt skips the source nodes' blocks and
+keeps the merged one. Without that, the merged prompt would carry both
+corrections **and** the reconciliation of them — handing the model the exact
+disagreement the merge existed to settle. Everything above the fork is untouched,
+because the merge never saw it, and both branches stay runnable on their own.
+
+Which makes a merge a snapshot, and snapshots go stale. Edit a branch afterwards
+and the merged node keeps generating from text that no longer matches its parent,
+with nothing in the prompt to reveal it — precisely because the merge supersedes
+that branch. So each merge records a fingerprint of what it consumed
+([`src/lib/merge.ts`](src/lib/merge.ts)); when a branch's blocks no longer match
+it, the node shows an **out of date** badge and the inspector names the branch
+that moved, with a **Rebuild from current branches** button. That re-pins the two
+branches in the compare tray and re-opens the same Diff & Merge dialog, except
+the result overwrites the existing merge instead of adding a second one beside
+it: the node keeps its id, position, edges, title and run history, and the merged
+block keeps its heading, so anything branched off the merge stays attached. A
+merge whose branch has since been deleted cannot be rebuilt and says so, rather
+than quietly merging against one parent.
+
+Merges made before this was recorded get a fingerprint on next load: a merge that
+was already stale is recorded as current, which is a guess, but flagging every
+old canvas would be equally untrue and much noisier.
+
 ## Privacy
 
 There is no backend. Weights are fetched from `huggingface.co` on first use and
@@ -275,6 +329,7 @@ src/
     compose.ts            DAG walking, root→node prompt composition
     diff.ts               word- and phrase-level diff, merge assembly, meta-prompt
     layout.ts             dagre auto-layout (handles two-parent merges)
+    merge.ts              merge fingerprints and rebuilds, so a merge knows it is stale
     keys.ts               platform-aware shortcut matching
     number.ts             committing typed numbers without fighting the caret
     prefs.ts              remembered view preferences, validated on read
