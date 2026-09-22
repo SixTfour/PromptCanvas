@@ -44,12 +44,20 @@ structured prompt text, not dialogue.
 ```bash
 npm install
 npm run dev      # http://localhost:5173
-npm test         # 42 tests over DAG, composition, diff, context budget and errors
+npm test         # 53 tests over DAG, composition, diff, context budget and errors
 npm run build
 ```
 
 Node 20+ to develop. To *use* it you need a current Chrome, Edge or Firefox —
 Safari's support for the runtime is partial.
+
+**Hardware acceleration must be on.** Chrome only exposes WebGPU when "Use
+graphics acceleration when available" is enabled in `chrome://settings/system`;
+with it off, `requestAdapter()` returns null and everything falls back to the
+CPU. The app probes for this before downloading anything and says so, with the
+setting path, rather than letting you fetch several hundred megabytes and then
+wonder why generation crawls. `chrome://gpu` should report
+"WebGPU: Hardware accelerated".
 
 ## Getting started
 

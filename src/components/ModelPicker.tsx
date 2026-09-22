@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { type BackendAdvice, backendAdvice, probeBackend } from '../lib/backend'
 import {
   cacheUsage,
   currentDevice,
@@ -47,6 +48,8 @@ export function ModelPicker({
   const [pending, setPending] = useState<ModelId | null>(null)
   const [confirming, setConfirming] = useState<ModelId | null>(null)
   const [deleting, setDeleting] = useState<ModelId | null>(null)
+  const [advice, setAdvice] = useState<BackendAdvice | null>(null)
+  const [gpuNote, setGpuNote] = useState<string | null>(null)
 
   const refresh = () => {
     setResident(loadedModel())
@@ -56,6 +59,21 @@ export function ModelPicker({
   }
 
   useEffect(refresh, [])
+
+  // Probed before anything is downloaded, so a fixable CPU fallback is caught
+  // while it still costs nothing to act on.
+  useEffect(() => {
+    void probeBackend().then((info) => {
+      setAdvice(backendAdvice(info))
+      if (info.state === 'gpu') {
+        setGpuNote(
+          `Using your GPU${info.description ? ` (${info.description})` : ''}${
+            info.f16 ? '' : ' — no shader-f16, so half-precision variants are skipped'
+          }.`,
+        )
+      }
+    })
+  }, [])
 
   const choose = async (id: ModelId) => {
     setPending(id)
@@ -108,6 +126,28 @@ export function ModelPicker({
           cached, so there is no account, no API key and no cost — and after the first download it
           works offline. Your prompts never leave the machine.
         </p>
+
+        {advice && (
+          <div
+            className={`rounded-md border p-3 ${
+              advice.tone === 'warn'
+                ? 'border-[var(--color-warn)]/40 bg-[#3a3218]/30'
+                : 'border-[var(--color-edge)]'
+            }`}
+          >
+            <p className="text-[12px] font-semibold text-[var(--color-warn)]">{advice.title}</p>
+            <p className="mt-1 text-[12px] leading-relaxed text-[var(--color-muted)]">
+              {advice.body}
+            </p>
+            {advice.action && (
+              <p className="mt-1.5 select-all rounded bg-[var(--color-canvas)] px-2 py-1.5 font-mono text-[11px] leading-relaxed text-[var(--color-ink)]">
+                {advice.action}
+              </p>
+            )}
+          </div>
+        )}
+
+        {gpuNote && <p className="text-[11px] text-[#5a6175]">{gpuNote}</p>}
 
         <div className="space-y-2">
           {MODEL_IDS.map((id) => {
