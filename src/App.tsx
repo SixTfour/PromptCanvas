@@ -19,6 +19,7 @@ export default function App() {
   const undo = useCanvas((s) => s.undo)
   const redo = useCanvas((s) => s.redo)
   const hydrate = useCanvas((s) => s.hydrate)
+  const syncFromUrl = useCanvas((s) => s.syncFromUrl)
 
   // Nothing on this machine yet: the first thing to decide is which weights to
   // pull, so ask before showing a canvas whose Run button would do nothing.
@@ -28,6 +29,13 @@ export default function App() {
   useEffect(() => {
     void hydrate()
   }, [hydrate])
+
+  // Back and Forward move between sessions, since each one has an address.
+  useEffect(() => {
+    const onPop = () => void syncFromUrl()
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [syncFromUrl])
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {

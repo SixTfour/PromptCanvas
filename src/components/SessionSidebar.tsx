@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { filterSessions, matchedInBody } from '../lib/search'
 import { type CanvasSummary, summarise } from '../lib/storage'
 import { formatRelativeTime } from '../lib/time'
+import { withSessionParam } from '../lib/url'
 import { useCanvas } from '../store/useCanvas'
 import { Badge, Button } from './ui'
 
@@ -26,6 +27,7 @@ export function SessionSidebar() {
   const [saved, setSaved] = useState<CanvasSummary[] | null>(null)
   const [query, setQuery] = useState('')
   const [confirming, setConfirming] = useState<string | null>(null)
+  const [copied, setCopied] = useState<string | null>(null)
 
   const refresh = () => void listSessions().then(setSaved)
 
@@ -181,6 +183,23 @@ export function SessionSidebar() {
                 </div>
               ) : (
                 <div className="mt-1 flex items-center gap-0.5 text-[10.5px]">
+                  <button
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(
+                          withSessionParam(window.location.href, s.id),
+                        )
+                        setCopied(s.id)
+                        setTimeout(() => setCopied((c) => (c === s.id ? null : c)), 1500)
+                      } catch {
+                        setNotice({ kind: 'warn', text: 'The clipboard is not available here.' })
+                      }
+                    }}
+                    title="Copy a link that reopens this session — on this browser only"
+                    className="rounded px-1.5 py-0.5 text-[var(--color-muted)] hover:bg-[var(--color-edge)] hover:text-[var(--color-ink)]"
+                  >
+                    {copied === s.id ? 'copied' : 'link'}
+                  </button>
                   <button
                     onClick={async () => {
                       await duplicateSession(s.id)

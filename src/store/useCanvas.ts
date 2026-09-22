@@ -15,6 +15,7 @@ import {
 import { formatError } from '../lib/errors'
 import { layoutCanvas, placeChild } from '../lib/layout'
 import { DEFAULT_MODEL, type ModelId } from '../lib/models'
+import { sessionIdFromSearch, withSessionParam } from '../lib/url'
 import {
   type CanvasSummary,
   deleteCanvas,
@@ -26,6 +27,23 @@ import {
   saveCanvas,
 } from '../lib/storage'
 import type { Canvas, CanvasNode, ContextBlock, PromptNodeData, Run } from '../types'
+
+/**
+ * Put the session in the address bar.
+ *
+ * `push` for a switch the user asked for, so Back returns to where they were;
+ * `replace` for everything else, since restoring a session on load or creating
+ * one should not leave a history entry that goes nowhere useful.
+ */
+function syncUrl(id: string, mode: 'push' | 'replace') {
+  try {
+    const next = withSessionParam(window.location.href, id)
+    if (next === window.location.href) return
+    window.history[mode === 'push' ? 'pushState' : 'replaceState'](null, '', next)
+  } catch {
+    /* an unwritable address bar is not worth failing over */
+  }
+}
 
 const LS_SESSIONS_OPEN = 'promptcanvas.sessionsOpen'
 
@@ -89,7 +107,9 @@ interface CanvasState {
   /** Reopen the last session on startup. Safe to call once, on mount. */
   hydrate: () => Promise<void>
   listSessions: () => Promise<CanvasSummary[]>
-  openSession: (id: string) => Promise<void>
+  openSession: (id: string, opts?: { fromHistory?: boolean }) => Promise<void>
+  /** Follow the session named by the current URL, for back/forward. */
+  syncFromUrl: () => Promise<void>
   duplicateSession: (id: string) => Promise<void>
   deleteSession: (id: string) => Promise<void>
   renameSession: (name: string) => void
@@ -239,14 +259,50 @@ export const useCanvas = create<CanvasState>((set, get) => {
       if (hydrated) return
       hydrated = true
       try {
-        const id = getLastCanvasId()
-        if (!id || id === get().canvas.id) return
-        const saved = await loadCanvas(id)
-        if (!saved || get().past.length > 0) return
-        set({ canvas: saved, selectedId: saved.rootId, compare: [] })
+        // A link wins over "wherever I was last": following it is the reason
+        // the tab was opened.
+        const linked = sessionIdFromSearch(window.location.search)
+        const id = linked ?? getLastCanvasId()
+
+        if (linked) {
+          const saved = await loadCanvas(linked)
+          if (!saved) {
+            // Worth saying out loud: the id is real, it is just not in this
+            // browser, which is not obvious from a URL that looks shareable.
+            set({
+              notice: {
+                kind: 'warn',
+                text: 'That session link does not match anything saved in this browser. Session links only open on the machine that created them.',
+              },
+            })
+            syncUrl(get().canvas.id, 'replace')
+            return
+          }
+          if (get().past.length === 0) {
+            rememberLastCanvas(saved.id)
+            set({ canvas: saved, selectedId: saved.rootId, compare: [] })
+          }
+          return
+        }
+
+        if (id && id !== get().canvas.id) {
+          const saved = await loadCanvas(id)
+          if (saved && get().past.length === 0) {
+            set({ canvas: saved, selectedId: saved.rootId, compare: [] })
+          }
+        }
       } catch {
         // A failed restore just means starting fresh, which is not worth a notice.
+      } finally {
+        // Whatever ended up open, the address bar should name it.
+        syncUrl(get().canvas.id, 'replace')
       }
+    },
+
+    syncFromUrl: async () => {
+      const id = sessionIdFromSearch(window.location.search)
+      if (!id || id === get().canvas.id) return
+      await get().openSession(id, { fromHistory: true })
     },
 
     listSessions: () => listCanvases(),
@@ -260,7 +316,7 @@ export const useCanvas = create<CanvasState>((set, get) => {
       set({ sessionsOpen: open })
     },
 
-    openSession: async (id) => {
+    openSession: async (id, opts) => {
       const saved = await loadCanvas(id)
       if (!saved) {
         set({ notice: { kind: 'error', text: 'That session could not be loaded.' } })
@@ -270,6 +326,9 @@ export const useCanvas = create<CanvasState>((set, get) => {
       await saveCanvas(get().canvas).catch(() => undefined)
       rememberLastCanvas(id)
       set({ canvas: saved, selectedId: saved.rootId, compare: [], past: [], future: [] })
+      // Arriving via Back already has the right URL; pushing again would trap
+      // the user in their own history.
+      syncUrl(id, opts?.fromHistory ? 'replace' : 'push')
     },
 
     duplicateSession: async (id) => {
@@ -285,6 +344,7 @@ export const useCanvas = create<CanvasState>((set, get) => {
       if (id === get().canvas.id) {
         const c = buildStarterCanvas()
         set({ canvas: layoutCanvas(c), selectedId: c.rootId, compare: [], past: [], future: [] })
+        syncUrl(c.id, 'replace')
         persist()
       }
     },
@@ -482,6 +542,7 @@ export const useCanvas = create<CanvasState>((set, get) => {
 
     newCanvas: () => {
       const c = emptyCanvas()
+      syncUrl(c.id, 'push')
       // A new session starts its own history rather than inheriting the last
       // one's, so undo cannot walk backwards into a different canvas.
       set({ canvas: c, selectedId: c.rootId, compare: [], past: [], future: [] })

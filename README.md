@@ -57,7 +57,7 @@ structured prompt text, not dialogue.
 ```bash
 npm install
 npm run dev      # http://localhost:5173
-npm test         # 84 tests over DAG, composition, diff, context budget and errors
+npm test         # 91 tests over DAG, composition, diff, context budget and errors
 npm run build
 ```
 
@@ -192,6 +192,14 @@ generation counts that tell you which one you actually want. Open, duplicate or
 delete one from there, or start a new session. Collapsed it stays as a narrow
 strip rather than vanishing, and the state is remembered.
 
+Each session has an address: `?session=<id>`. Bookmark it to come back to a
+specific canvas, and browser Back and Forward move between the sessions you have
+opened. The **link** action on a session copies its URL.
+
+It is an address, not a share link — the id names a record in *this* browser's
+IndexedDB, so the same URL opened on another machine finds nothing and says so
+rather than failing quietly. Export is still how a canvas travels.
+
 Search covers **prompt text as well as names**, because most sessions keep
 whatever name the starter gave them and the name alone rarely tells them apart.
 Terms are ANDed, so typing more narrows the list, and a session found only by
@@ -234,6 +242,7 @@ src/
     layout.ts             dagre auto-layout (handles two-parent merges)
     keys.ts               platform-aware shortcut matching
     search.ts             session search over names and prompt text
+    url.ts                ?session= addressing, parsed and rewritten purely
     time.ts               relative timestamps for the session list
     markdown.ts           toolbar text transforms (pure, so they are testable)
     storage.ts            IndexedDB persistence, export/import
