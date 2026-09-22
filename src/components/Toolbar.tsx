@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { currentDevice, loadedModel } from '../lib/engine'
+import { currentDevice, currentDtype, loadedModel } from '../lib/engine'
 import { formatError } from '../lib/errors'
 import { MODELS } from '../lib/models'
 import { downloadJson, exportCanvas, importCanvas } from '../lib/storage'
@@ -23,6 +23,7 @@ export function Toolbar() {
 
   const resident = activeModel ?? loadedModel()
   const device = currentDevice()
+  const dtype = currentDtype()
 
   return (
     <>
@@ -47,6 +48,7 @@ export function Toolbar() {
               <Badge tone="good">
                 {MODELS[resident].label}
                 {device ? ` · ${device === 'webgpu' ? 'GPU' : 'CPU'}` : ''}
+                {dtype ? ` · ${dtype}` : ''}
               </Badge>
             </button>
           ) : (

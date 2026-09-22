@@ -1,5 +1,5 @@
 import type { ComposedPrompt } from '../types'
-import { DEFAULT_MODEL, type ModelId } from './models'
+import { DEFAULT_MODEL, type Dtype, type ModelId } from './models'
 
 /**
  * Main-thread client for the inference worker.
@@ -11,6 +11,10 @@ import { DEFAULT_MODEL, type ModelId } from './models'
 export interface LoadProgress {
   modelId: ModelId
   device: 'webgpu' | 'wasm'
+  /** The weight variant chosen for this machine. */
+  dtype?: Dtype
+  /** True when the weights were already cached, so this is a read not a fetch. */
+  fromCache?: boolean
   progress: number
   file: string
   loadedBytes?: number
@@ -84,13 +88,24 @@ export function forgetDownloaded(): void {
 let worker: Worker | null = null
 let readyModel: ModelId | null = null
 let device: 'webgpu' | 'wasm' | null = null
+let activeDtype: Dtype | null = null
 const progressListeners = new Set<Listener>()
 
 let usageResolve: ((u: Partial<Record<ModelId, number>>) => void) | null = null
 let deleteResolve: ((freed: number) => void) | null = null
 let deleteReject: ((e: Error) => void) | null = null
 
-/** Resolvers for in-flight operations, keyed by run id (or '@load'). */
+/**
+ * Everyone waiting on the current load.
+ *
+ * A single shared slot was a bug: a second caller arriving mid-load replaced
+ * the first caller's resolver, so that promise never settled and whatever was
+ * awaiting it hung forever. Loads are fanned out to every waiter instead.
+ */
+const loadWaiters: Array<{ resolve: () => void; reject: (e: Error) => void }> = []
+let loadingModel: ModelId | null = null
+
+/** Resolvers for in-flight operations, keyed by run id. */
 const pending = new Map<
   string,
   { resolve: (v: RunStats) => void; reject: (e: Error) => void; handlers?: GenerateHandlers }
@@ -108,22 +123,21 @@ function ensureWorker(): Worker {
       case 'ready': {
         readyModel = msg.modelId as ModelId
         device = msg.device as 'webgpu' | 'wasm'
+        activeDtype = (msg.dtype as Dtype) ?? null
         markDownloaded(readyModel)
         notify(null)
-        pending.get('@load')?.resolve({
-          promptTokens: 0,
-          completionTokens: 0,
-          elapsedMs: 0,
-          tokensPerSecond: 0,
-        })
-        pending.delete('@load')
+        // Every caller that asked for this load gets the same answer.
+        for (const w of loadWaiters) w.resolve()
+        loadWaiters.length = 0
+        loadingModel = null
         break
       }
       case 'error': {
         notify(null)
         const err = new Error(String(msg.message ?? 'Model failed to load.'))
-        pending.get('@load')?.reject(err)
-        pending.delete('@load')
+        for (const w of loadWaiters) w.reject(err)
+        loadWaiters.length = 0
+        loadingModel = null
         break
       }
       case 'run-start':
@@ -158,6 +172,7 @@ function ensureWorker(): Worker {
         if (readyModel === id) {
           readyModel = null
           device = null
+          activeDtype = null
         }
         unmarkDownloaded(id)
         deleteResolve?.(Number(msg.freed ?? 0))
@@ -188,6 +203,11 @@ export function currentDevice(): 'webgpu' | 'wasm' | null {
   return device
 }
 
+/** The weight variant the resident model was loaded with. */
+export function currentDtype(): Dtype | null {
+  return activeDtype
+}
+
 export function isModelReady(modelId: ModelId = DEFAULT_MODEL): boolean {
   return readyModel === modelId
 }
@@ -197,15 +217,17 @@ export function loadedModel(): ModelId | null {
   return readyModel
 }
 
-/** Download and initialise a model. Safe to call repeatedly. */
-export function loadModel(modelId: ModelId): Promise<unknown> {
-  if (readyModel === modelId) return Promise.resolve(null)
-  const existing = pending.get('@load')
-  if (existing) return new Promise((resolve, reject) => pending.set('@load', { resolve, reject }))
+/** Download and initialise a model. Safe to call repeatedly and concurrently. */
+export function loadModel(modelId: ModelId): Promise<void> {
+  if (readyModel === modelId) return Promise.resolve()
   const w = ensureWorker()
-  const p = new Promise<RunStats>((resolve, reject) => pending.set('@load', { resolve, reject }))
-  w.postMessage({ type: 'load', modelId })
-  return p
+  const waiting = new Promise<void>((resolve, reject) => loadWaiters.push({ resolve, reject }))
+  // Join the load already in flight for this model rather than starting another.
+  if (loadingModel !== modelId) {
+    loadingModel = modelId
+    w.postMessage({ type: 'load', modelId })
+  }
+  return waiting
 }
 
 export type ChatMessage = { role: 'system' | 'user'; content: string }

@@ -4,6 +4,9 @@ import { buildStarterCanvas } from '../data/starterCanvas'
 import { composePrompt } from '../lib/compose'
 import {
   type LoadProgress,
+  cacheUsage,
+  currentDevice,
+  currentDtype,
   generate,
   loadModel,
   onLoadProgress,
@@ -338,6 +341,21 @@ export const useCanvas = create<CanvasState>((set, get) => {
       try {
         await loadModel(modelId)
         set({ activeModel: modelId, loading: null })
+
+        // A load that leaves nothing in the cache means the browser refused to
+        // store the weights — private windows and blocked site data both do
+        // this. It works now and silently re-downloads on every refresh, which
+        // is worth saying out loud rather than letting someone wonder.
+        void cacheUsage().then((usage) => {
+          if (!usage[modelId]) {
+            set({
+              notice: {
+                kind: 'warn',
+                text: 'The model loaded, but this browser did not keep a cached copy, so it will download again on refresh. Private windows and blocked site data both cause this.',
+              },
+            })
+          }
+        })
         return true
       } catch (err) {
         set({ loading: null, notice: { kind: 'error', text: formatError(err) } })
@@ -380,6 +398,20 @@ export const useCanvas = create<CanvasState>((set, get) => {
               },
             },
           )
+          if (!text.trim()) {
+            // A run that ends cleanly with nothing to show is almost always a
+            // backend that loaded a weight variant it cannot actually execute.
+            // Saying so beats rendering an empty box.
+            patchRun(nodeId, run.id, {
+              status: 'error',
+              error: `The model produced no output. This usually means the ${
+                currentDevice() === 'wasm' ? 'CPU' : 'GPU'
+              } backend cannot run the ${currentDtype() ?? 'selected'} weights. Try a different model from the Models dialog, and report it if it persists.`,
+              stats,
+              finishedAt: Date.now(),
+            })
+            return
+          }
           patchRun(nodeId, run.id, {
             status: 'done',
             text,

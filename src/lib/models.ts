@@ -17,7 +17,27 @@ export type ModelId =
   | 'HuggingFaceTB/SmolLM2-1.7B-Instruct'
 
 /** transformers.js quantisation selector. */
-export type Dtype = 'fp16' | 'q4f16' | 'q4' | 'int8'
+export type Dtype = 'fp32' | 'fp16' | 'q8' | 'q4f16' | 'q4' | 'int8'
+
+export type Backend = 'webgpu' | 'wasm'
+
+/**
+ * Which weight file to fetch for a given backend.
+ *
+ * This is not cosmetic. transformers.js validates that a dtype *exists*, not
+ * that the backend can execute it, so asking for fp16 on the WASM backend
+ * loads a file ONNX Runtime cannot run — the session comes up and then
+ * generates nothing. The library's own default for WASM is q8, and fp16 on
+ * WebGPU additionally requires the adapter to advertise `shader-f16`.
+ */
+export interface DtypeChoices {
+  /** WebGPU with the shader-f16 feature. */
+  webgpuF16: Dtype
+  /** WebGPU without it. */
+  webgpu: Dtype
+  /** CPU. */
+  wasm: Dtype
+}
 
 export interface ModelSpec {
   id: ModelId
@@ -28,7 +48,7 @@ export interface ModelSpec {
   size: '◆' | '◆◆' | '◆◆◆'
   /** Hard context limit from the model's config.json. */
   contextTokens: number
-  dtype: Dtype
+  dtypes: DtypeChoices
   caveat: string
 }
 
@@ -39,9 +59,9 @@ export const MODELS: Record<ModelId, ModelSpec> = {
     downloadMb: 270,
     size: '◆',
     contextTokens: 2048,
-    // 4-bit quantisation measurably degrades a model this small, so this one
-    // ships at fp16 even though it costs more download than q4f16 would.
-    dtype: 'fp16',
+    // 4-bit quantisation measurably degrades a model this small, so it avoids
+    // q4 everywhere: fp16 on a capable GPU, fp32 without one, q8 on CPU.
+    dtypes: { webgpuF16: 'fp16', webgpu: 'fp32', wasm: 'q8' },
     caveat:
       'Very small. Expect loose, sometimes incoherent output — the model card itself notes it struggles with arithmetic, editing and multi-step reasoning. Good for watching how wording changes behaviour, not for judging answer quality.',
   },
@@ -51,7 +71,7 @@ export const MODELS: Record<ModelId, ModelSpec> = {
     downloadMb: 290,
     size: '◆◆',
     contextTokens: 8192,
-    dtype: 'q4f16',
+    dtypes: { webgpuF16: 'q4f16', webgpu: 'q4', wasm: 'q8' },
     caveat:
       'Noticeably steadier than 135M and with a 4x larger context window, for about the same download.',
   },
@@ -61,7 +81,9 @@ export const MODELS: Record<ModelId, ModelSpec> = {
     downloadMb: 1100,
     size: '◆◆◆',
     contextTokens: 8192,
-    dtype: 'q4f16',
+    // Never fp32/fp16 here: both carry external .onnx_data weights running to
+    // several GB, which is not a reasonable browser download.
+    dtypes: { webgpuF16: 'q4f16', webgpu: 'q4', wasm: 'q8' },
     caveat:
       'The most coherent option here, and the only one that holds a structured format reliably. Costs a ~1.1 GB first download and needs WebGPU to be usable.',
   },
@@ -127,6 +149,18 @@ export function contextPressure(
  * id is a prefix of another, deleting the shorter one would silently take the
  * longer one's weights with it.
  */
+/**
+ * The weight variant to load for this machine.
+ *
+ * Kept pure and separate from the worker so the mapping can be tested without
+ * a GPU, a browser, or a download.
+ */
+export function pickDtype(model: ModelId, backend: Backend, supportsF16: boolean): Dtype {
+  const d = MODELS[model].dtypes
+  if (backend === 'wasm') return d.wasm
+  return supportsF16 ? d.webgpuF16 : d.webgpu
+}
+
 export function modelIdFromUrl(url: string): ModelId | null {
   for (const id of MODEL_IDS) {
     if (url.includes(`/${id}/`) || url.endsWith(`/${id}`)) return id

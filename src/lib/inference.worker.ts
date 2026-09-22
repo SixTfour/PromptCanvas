@@ -8,7 +8,7 @@ import {
   AutoTokenizer,
   env,
 } from '@huggingface/transformers'
-import { MODELS, modelIdFromUrl, type ModelId } from './models'
+import { modelIdFromUrl, pickDtype, type Dtype, type ModelId } from './models'
 
 /**
  * Inference runs here, off the main thread.
@@ -31,6 +31,7 @@ interface Loaded {
   tokenizer: PreTrainedTokenizer
   model: PreTrainedModel
   device: 'webgpu' | 'wasm'
+  dtype: Dtype
 }
 
 let loaded: Loaded | null = null
@@ -50,20 +51,31 @@ interface ChatMessage {
 
 const post = (msg: unknown) => (self as unknown as Worker).postMessage(msg)
 
-/** WebGPU is much faster but not available everywhere; WASM keeps it working. */
-async function pickDevice(): Promise<'webgpu' | 'wasm'> {
-  const gpu = (navigator as unknown as { gpu?: { requestAdapter(): Promise<unknown> } }).gpu
-  if (!gpu) return 'wasm'
+/**
+ * WebGPU is much faster but not available everywhere; WASM keeps it working.
+ *
+ * Also reports whether the adapter advertises `shader-f16`, because half
+ * precision on WebGPU depends on that feature rather than on WebGPU itself.
+ */
+async function pickBackend(): Promise<{ device: 'webgpu' | 'wasm'; f16: boolean }> {
+  const gpu = (
+    navigator as unknown as {
+      gpu?: { requestAdapter(): Promise<{ features?: Set<string> } | null> }
+    }
+  ).gpu
+  if (!gpu) return { device: 'wasm', f16: false }
   try {
-    return (await gpu.requestAdapter()) ? 'webgpu' : 'wasm'
+    const adapter = await gpu.requestAdapter()
+    if (!adapter) return { device: 'wasm', f16: false }
+    return { device: 'webgpu', f16: adapter.features?.has('shader-f16') ?? false }
   } catch {
-    return 'wasm'
+    return { device: 'wasm', f16: false }
   }
 }
 
 async function load(modelId: ModelId) {
   if (loaded?.id === modelId) {
-    post({ type: 'ready', modelId, device: loaded.device })
+    post({ type: 'ready', modelId, device: loaded.device, dtype: loaded.dtype })
     return
   }
 
@@ -77,9 +89,15 @@ async function load(modelId: ModelId) {
     loaded = null
   }
 
-  const spec = MODELS[modelId]
-  const device = await pickDevice()
-  post({ type: 'loading', modelId, device, progress: 0, file: '' })
+  const { device, f16 } = await pickBackend()
+  const dtype = pickDtype(modelId, device, f16)
+
+  // Whether the weights are already here decides what the progress bar should
+  // claim to be doing. Saying "downloading" during a cache read is how a fast
+  // local load gets mistaken for a repeated download.
+  const alreadyCached = (await cachedBytes(modelId)) > 0
+
+  post({ type: 'loading', modelId, device, dtype, fromCache: alreadyCached, progress: 0, file: '' })
 
   // transformers.js reports per-file byte progress; collapse it to one bar so
   // the UI shows a single number rather than six competing ones.
@@ -102,6 +120,8 @@ async function load(modelId: ModelId) {
       type: 'loading',
       modelId,
       device,
+      dtype,
+      fromCache: alreadyCached,
       progress: all > 0 ? done / all : 0,
       file: p.file,
       loadedBytes: done,
@@ -114,12 +134,12 @@ async function load(modelId: ModelId) {
       progress_callback: onProgress,
     })
     const model = await AutoModelForCausalLM.from_pretrained(modelId, {
-      dtype: spec.dtype,
+      dtype,
       device,
       progress_callback: onProgress,
     })
-    loaded = { id: modelId, tokenizer, model, device }
-    post({ type: 'ready', modelId, device })
+    loaded = { id: modelId, tokenizer, model, device, dtype }
+    post({ type: 'ready', modelId, device, dtype })
   } catch (err) {
     post({ type: 'error', message: err instanceof Error ? err.message : String(err) })
   }
@@ -208,6 +228,25 @@ async function entrySize(res: Response | undefined): Promise<number> {
   } catch {
     return 0
   }
+}
+
+/** Bytes currently cached for one model. */
+async function cachedBytes(modelId: ModelId): Promise<number> {
+  if (typeof caches === 'undefined') return 0
+  let total = 0
+  try {
+    for (const name of cacheNames()) {
+      if (!(await caches.has(name))) continue
+      const cache = await caches.open(name)
+      for (const req of await cache.keys()) {
+        if (modelIdFromUrl(req.url) !== modelId) continue
+        total += await entrySize(await cache.match(req))
+      }
+    }
+  } catch {
+    return 0
+  }
+  return total
 }
 
 /** Per-model cached size, so the UI can show what deleting would reclaim. */

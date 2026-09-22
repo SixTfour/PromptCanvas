@@ -35,8 +35,11 @@ export default function App() {
         <div className="border-b border-[var(--color-edge)] bg-[var(--color-panel)] px-4 py-2">
           <div className="mb-1 flex items-center justify-between text-[11px] text-[var(--color-muted)]">
             <span>
-              Downloading model weights — once per browser, then cached
-              {loading.device === 'wasm' ? ' · WebGPU unavailable, will run on CPU' : ''}
+              {loading.fromCache
+                ? 'Loading model from cache'
+                : 'Downloading model weights — once per browser, then cached'}
+              {loading.dtype ? ` · ${loading.dtype}` : ''}
+              {loading.device === 'wasm' ? ' · WebGPU unavailable, running on CPU' : ''}
             </span>
             <span>
               {loading.totalBytes

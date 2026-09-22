@@ -18,6 +18,8 @@ import {
   contextPressure,
   estimateTokens,
   modelIdFromUrl,
+  pickDtype,
+  type Dtype,
 } from './models'
 
 const starter = buildStarterCanvas()
@@ -384,6 +386,50 @@ describe('cached weight attribution', () => {
   it('claims every model it is asked about, so nothing is orphaned', () => {
     for (const id of MODEL_IDS) {
       expect(modelIdFromUrl(`${HF}/${id}/resolve/main/onnx/model.onnx`)).toBe(id)
+    }
+  })
+})
+
+describe('weight variant selection', () => {
+  /** Variants whose compute is half precision, and so need GPU support for it. */
+  const HALF: Dtype[] = ['fp16', 'q4f16']
+  // transformers.js validates that a dtype exists, not that the backend can run
+  // it. Asking for fp16 on WASM loads a file ONNX Runtime cannot execute: the
+  // session comes up and then generates nothing at all.
+  it('never asks the CPU backend for a half-precision variant', () => {
+    for (const id of MODEL_IDS) {
+      for (const f16 of [true, false]) {
+        expect(HALF, `${id} on wasm`).not.toContain(pickDtype(id, 'wasm', f16))
+      }
+    }
+  })
+
+  it('uses the library default of q8 on CPU', () => {
+    for (const id of MODEL_IDS) expect(pickDtype(id, 'wasm', false)).toBe('q8')
+  })
+
+  it('only uses half precision on WebGPU when shader-f16 is present', () => {
+    for (const id of MODEL_IDS) {
+      expect(HALF, `${id} without shader-f16`).not.toContain(pickDtype(id, 'webgpu', false))
+      expect(HALF, `${id} with shader-f16`).toContain(pickDtype(id, 'webgpu', true))
+    }
+  })
+
+  it('keeps the smallest model off 4-bit, which measurably degrades it', () => {
+    const tiny = 'HuggingFaceTB/SmolLM-135M-Instruct' as const
+    expect(pickDtype(tiny, 'webgpu', true)).toBe('fp16')
+    expect(pickDtype(tiny, 'webgpu', false)).toBe('fp32')
+    expect(pickDtype(tiny, 'wasm', false)).toBe('q8')
+  })
+
+  it('keeps the 1.7B off variants that carry multi-GB external weight files', () => {
+    const big = 'HuggingFaceTB/SmolLM2-1.7B-Instruct' as const
+    // Only model.onnx and model_fp16.onnx have .onnx_data siblings upstream.
+    for (const backend of ['webgpu', 'wasm'] as const) {
+      for (const f16 of [true, false]) {
+        expect(pickDtype(big, backend, f16)).not.toBe('fp32')
+        expect(pickDtype(big, backend, f16)).not.toBe('fp16')
+      }
     }
   })
 })
