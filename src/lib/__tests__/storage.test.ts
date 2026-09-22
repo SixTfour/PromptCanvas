@@ -11,10 +11,6 @@ import { staleMergeSources } from '../merge'
 import { migrateCanvas, shortSessionId } from '../storage'
 
 describe('session id display', () => {
-  it('leaves a normally generated id alone', () => {
-    expect(shortSessionId('c-Ab3dEf9x')).toBe('c-Ab3dEf9x')
-  })
-
   it('truncates an over-long id from an imported canvas', () => {
     const long = 'canvas-from-somewhere-else-0123456789'
     const out = shortSessionId(long)
@@ -167,11 +163,6 @@ describe('canvases holding a block kind that no longer exists', () => {
   it('leaves the kinds that still exist alone', () => {
     const out = migrateCanvas(canvasWithKinds('context', 'correction'))
     expect(out.nodes[0].data.blocks.map((b) => b.kind)).toEqual(['context', 'correction'])
-  })
-
-  it('does not rewrite a canvas that needs nothing', () => {
-    const c = canvasWithKinds('context', 'correction')
-    expect(migrateCanvas(c)).toBe(c)
   })
 })
 

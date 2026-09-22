@@ -67,14 +67,11 @@ describe('cached weight attribution', () => {
     )
   })
 
-  it('requires a bounded path segment, not a bare substring', () => {
-    // A hypothetical sibling repo whose name merely starts with a known id must
-    // not be attributed to that id, or deleting one would take the other's files.
+  it('attributes nothing it is not sure about', () => {
+    // A sibling repo whose name merely starts with a known id must not be
+    // attributed to it, or deleting one would take the other's files.
     const decoy = `${HF}/HuggingFaceTB/SmolLM-135M-Instruct-GGUF/resolve/main/model.gguf`
     expect(modelIdFromUrl(decoy)).toBeNull()
-  })
-
-  it('ignores unrelated URLs', () => {
     expect(modelIdFromUrl('https://example.com/whatever.bin')).toBeNull()
     expect(modelIdFromUrl('')).toBeNull()
   })
@@ -204,16 +201,14 @@ describe('auto response length', () => {
 })
 
 describe('every model is presentable on a node', () => {
-  it('has a short label that fits beside the title', () => {
-    for (const m of Object.values(MODELS)) {
-      expect(m.short).toBeTruthy()
-      // The canvas node is 320px wide and the title needs most of it.
-      expect(m.short.length).toBeLessThanOrEqual(5)
-    }
-  })
-
-  it('has distinct short labels, or the chip tells you nothing', () => {
+  it('has a short label, distinct from the others, that fits beside the title', () => {
     const shorts = Object.values(MODELS).map((m) => m.short)
+    for (const short of shorts) {
+      expect(short).toBeTruthy()
+      // The canvas node is 320px wide and the title needs most of it.
+      expect(short.length).toBeLessThanOrEqual(5)
+    }
+    // A chip that reads the same on every node says nothing.
     expect(new Set(shorts).size).toBe(shorts.length)
   })
 })

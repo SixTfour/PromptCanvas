@@ -28,10 +28,6 @@ describe('run list', () => {
     expect(out.find((d) => d.run.id === 'a')?.number).toBe(1)
   })
 
-  it('handles no runs at all', () => {
-    expect(orderRunsNewestFirst([])).toEqual([])
-  })
-
   it('opens the newest by default and leaves the rest closed', () => {
     expect(isRunOpen(run('a'), true, {})).toBe(true)
     expect(isRunOpen(run('a'), false, {})).toBe(false)

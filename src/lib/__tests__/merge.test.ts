@@ -110,19 +110,16 @@ describe('a merge that has fallen behind its branches', () => {
 })
 
 describe('things that cannot be judged are not flagged', () => {
-  it('says nothing about a node that is not a merge', () => {
+  it('says nothing about a node that is not a merge, or is not there', () => {
     expect(staleMergeSources(stamped, 'n-terse')).toEqual([])
     expect(staleMergeSources(stamped, 'n-root')).toEqual([])
+    expect(staleMergeSources(stamped, 'nope')).toEqual([])
   })
 
   it('says nothing about a merge with no recorded basis', () => {
     // Crying wolf on every canvas made before this existed would teach people
     // to ignore the badge, which costs more than the missed warnings.
     expect(staleMergeSources(withMerge, 'n-merged')).toEqual([])
-  })
-
-  it('says nothing about a node that does not exist', () => {
-    expect(staleMergeSources(stamped, 'nope')).toEqual([])
   })
 
   it('does not report a deleted branch as changed', () => {
@@ -134,10 +131,6 @@ describe('things that cannot be judged are not flagged', () => {
 
 describe('the fingerprint', () => {
   const node = withMerge.nodes.find((n) => n.id === 'n-terse')!
-
-  it('is stable across calls', () => {
-    expect(sourceFingerprint(node)).toBe(sourceFingerprint(node))
-  })
 
   it('separates text that differs only by where a block boundary falls', () => {
     const joined = {

@@ -9,7 +9,6 @@ describe('committing a typed number', () => {
   // The bug this replaces: clamping per keystroke meant typing "512" produced
   // 5, which snapped to 16, and every later digit landed after it.
   it('accepts a value whose first digits are below the minimum', () => {
-    // Each of these is a partial state while typing "512"; none should commit.
     expect(commitNumber('512', CURRENT, MIN, MAX)).toBe(512)
   })
 

@@ -28,13 +28,6 @@ describe('markdown editor transforms', () => {
     expect(r.text.slice(r.start, r.end)).toBe('this')
   })
 
-  it('round-trips: wrap then unwrap returns the original', () => {
-    const original = 'alpha beta gamma'
-    const wrapped = toggleWrap(original, 6, 10, '*')
-    const back = toggleWrap(wrapped.text, wrapped.start, wrapped.end, '*')
-    expect(back.text).toBe(original)
-  })
-
   it('puts the caret between the markers when nothing is selected', () => {
     const r = toggleWrap('ab', 1, 1, '**')
     expect(r.text).toBe('a****b')

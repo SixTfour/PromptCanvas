@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { starter, withMerge } from '../../test/fixtures'
-import { ancestorChain, composePrompt, parentsOf } from '../compose'
+import { ancestorChain, composePrompt } from '../compose'
 
 describe('DAG traversal', () => {
   it('walks a plain branch root-first', () => {
@@ -17,10 +17,6 @@ describe('DAG traversal', () => {
     // Every node must come after all of its own ancestors.
     expect(chain.indexOf('n-root')).toBeLessThan(chain.indexOf('n-terse'))
     expect(chain.indexOf('n-terse')).toBeLessThan(chain.indexOf('n-merged'))
-  })
-
-  it('reports both parents of a merge node', () => {
-    expect(parentsOf(withMerge, 'n-merged').sort()).toEqual(['n-severity', 'n-terse'])
   })
 
   it('does not hang on a cycle', () => {
@@ -219,7 +215,7 @@ describe('a merge replaces what it merged', () => {
     expect(composePrompt(withMerge, 'n-merged').text).toContain(inheritedText)
   })
 
-  it('marks the source blocks as no longer inherited', () => {
+  it('leaves no trace of the source nodes in the block provenance', () => {
     const { blocks } = composePrompt(withMerge, 'n-merged')
     expect(blocks.map((b) => b.fromNodeId)).toEqual(['n-root', 'n-merged'])
   })

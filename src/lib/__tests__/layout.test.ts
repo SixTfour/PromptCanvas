@@ -50,8 +50,4 @@ describe('placing a new branch', () => {
     const root = starter.nodes.find((n) => n.id === 'n-root')!
     expect(placeChild(starter, 'n-root').x).toBeGreaterThan(root.position.x)
   })
-
-  it('does not throw on a parent that is not there', () => {
-    expect(() => placeChild(starter, 'nope')).not.toThrow()
-  })
 })

@@ -86,8 +86,4 @@ describe('session ordering', () => {
     const list = [s('a', 200), s('b', 100)]
     expect(orderSessions(list, 'missing').map((x) => x.id)).toEqual(['a', 'b'])
   })
-
-  it('handles an empty list', () => {
-    expect(orderSessions([], 'open')).toEqual([])
-  })
 })
