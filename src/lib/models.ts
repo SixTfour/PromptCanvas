@@ -193,3 +193,35 @@ export function modelIdFromUrl(url: string): ModelId | null {
   }
   return null
 }
+
+/**
+ * How many tokens a node may generate.
+ *
+ * `'auto'` means "whatever is left", which is the right answer almost always:
+ * the ceiling is the model's context window minus the prompt, and the prompt is
+ * the part that changes as you branch. Picking a number by hand only matters
+ * when you want output deliberately shorter than it could be.
+ */
+export type MaxNewTokens = number | 'auto'
+
+/** Small reserve so an off-by-a-few token estimate cannot overflow the window. */
+const AUTO_MARGIN = 8
+
+/**
+ * Resolve a setting to a concrete limit.
+ *
+ * `promptTokens` should be a real count where one is available — the worker has
+ * one after applying the chat template — and an estimate elsewhere.
+ */
+export function effectiveMaxNewTokens(
+  model: ModelId,
+  promptTokens: number,
+  setting: MaxNewTokens,
+  minimum = 16,
+): number {
+  const limit = MODELS[model].contextTokens
+  if (setting !== 'auto') return Math.min(setting, limit)
+  // Never returns zero or less: a prompt that fills the window is reported by
+  // contextPressure rather than silently producing a model that cannot speak.
+  return Math.max(minimum, limit - promptTokens - AUTO_MARGIN)
+}

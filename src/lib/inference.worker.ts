@@ -8,7 +8,14 @@ import {
   AutoTokenizer,
   env,
 } from '@huggingface/transformers'
-import { dtypeCandidates, modelIdFromUrl, type Dtype, type ModelId } from './models'
+import {
+  dtypeCandidates,
+  effectiveMaxNewTokens,
+  modelIdFromUrl,
+  type Dtype,
+  type MaxNewTokens,
+  type ModelId,
+} from './models'
 
 /**
  * Inference runs here, off the main thread.
@@ -39,7 +46,13 @@ let stopper: InterruptableStoppingCriteria | null = null
 
 type Incoming =
   | { type: 'load'; modelId: ModelId; verifiedDtype?: Dtype | null }
-  | { type: 'generate'; runId: string; modelId: ModelId; messages: ChatMessage[]; maxNewTokens: number }
+  | {
+      type: 'generate'
+      runId: string
+      modelId: ModelId
+      messages: ChatMessage[]
+      maxNewTokens: MaxNewTokens
+    }
   | { type: 'stop' }
   | { type: 'delete'; modelId: ModelId }
   | { type: 'usage' }
@@ -205,7 +218,7 @@ async function generate(
   runId: string,
   modelId: ModelId,
   messages: ChatMessage[],
-  maxNewTokens: number,
+  maxNewTokens: MaxNewTokens,
 ) {
   if (loaded?.id !== modelId) await load(modelId)
   if (loaded?.id !== modelId) {
@@ -223,7 +236,10 @@ async function generate(
     }) as { input_ids: { dims: number[] } }
 
     const promptTokens = inputs.input_ids.dims.at(-1) ?? 0
-    post({ type: 'run-start', runId, promptTokens })
+    // Resolved here rather than in the UI: this is the only place with a real
+    // token count instead of a character-based estimate.
+    const limit = effectiveMaxNewTokens(modelId, promptTokens, maxNewTokens)
+    post({ type: 'run-start', runId, promptTokens, maxNewTokens: limit })
 
     const started = performance.now()
     let completionTokens = 0
@@ -239,7 +255,7 @@ async function generate(
 
     await model.generate({
       ...(inputs as unknown as Record<string, unknown>),
-      max_new_tokens: maxNewTokens,
+      max_new_tokens: limit,
       do_sample: false,
       streamer,
       stopping_criteria: stopper,

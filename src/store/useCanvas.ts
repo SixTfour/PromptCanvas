@@ -161,9 +161,9 @@ function emptyCanvas(): Canvas {
           instruction: '',
           blocks: [],
           model: DEFAULT_MODEL,
-          // Small relative to a hosted API's ceiling, because generated tokens
-          // count against the same 2048-token window as the prompt on SmolLM 135M.
-          maxNewTokens: 256,
+          // Use whatever the prompt leaves free; an explicit number is an
+          // Advanced Settings decision, not a starting condition.
+          maxNewTokens: 'auto',
           runs: [],
         },
       },

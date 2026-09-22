@@ -37,6 +37,7 @@ import {
   MODELS,
   MODEL_IDS,
   contextPressure,
+  effectiveMaxNewTokens,
   estimateTokens,
   HALF_PRECISION,
   dtypeCandidates,
@@ -959,5 +960,43 @@ describe('session ordering', () => {
 
   it('handles an empty list', () => {
     expect(orderSessions([], 'open')).toEqual([])
+  })
+})
+
+describe('auto response length', () => {
+  const TINY = 'HuggingFaceTB/SmolLM-135M-Instruct' as const // 2048 context
+  const BIG = 'HuggingFaceTB/SmolLM2-360M-Instruct' as const // 8192 context
+
+  it('uses whatever the prompt leaves free', () => {
+    const out = effectiveMaxNewTokens(TINY, 500, 'auto')
+    expect(out).toBeGreaterThan(1400)
+    expect(out + 500).toBeLessThanOrEqual(2048)
+  })
+
+  it('shrinks as the prompt grows, which is the point of auto', () => {
+    const shallow = effectiveMaxNewTokens(BIG, 200, 'auto')
+    const deep = effectiveMaxNewTokens(BIG, 4000, 'auto')
+    expect(deep).toBeLessThan(shallow)
+  })
+
+  // A branch deep enough to fill the window must not resolve to zero or a
+  // negative limit; contextPressure reports that case, the resolver does not
+  // silently produce a model that cannot speak.
+  it('never resolves below the minimum, even on an overfull prompt', () => {
+    expect(effectiveMaxNewTokens(TINY, 5000, 'auto')).toBe(16)
+    expect(effectiveMaxNewTokens(TINY, 2048, 'auto', 32)).toBe(32)
+  })
+
+  it('leaves headroom rather than filling the window exactly', () => {
+    const out = effectiveMaxNewTokens(BIG, 1000, 'auto')
+    expect(out + 1000).toBeLessThan(8192)
+  })
+
+  it('honours an explicit number', () => {
+    expect(effectiveMaxNewTokens(BIG, 100, 512)).toBe(512)
+  })
+
+  it('never lets an explicit number exceed the model window', () => {
+    expect(effectiveMaxNewTokens(TINY, 0, 99999)).toBe(2048)
   })
 })

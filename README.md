@@ -57,7 +57,7 @@ structured prompt text, not dialogue.
 ```bash
 npm install
 npm run dev      # http://localhost:5173
-npm test         # 113 tests over DAG, composition, diff, context budget and errors
+npm test         # 119 tests over DAG, composition, diff, context budget and errors
 npm run build
 ```
 
@@ -129,9 +129,16 @@ Money is no longer the limiting resource — context is. SmolLM 135M has a
 composes prompts by concatenating every ancestor's blocks, so a deep branch grows
 monotonically toward that ceiling.
 
-The inspector shows a live context budget bar, warns at 80%, and disables **Run**
-when a prompt would overflow — because overflow is *silent truncation*, not an
-error. Deep lineages want SmolLM2 and its 8k window.
+Response length is **auto** by default: the model gets whatever the prompt
+leaves free, recomputed from the real token count each run rather than from an
+estimate. That keeps a branch in range as its ancestry grows, which a fixed
+number does not.
+
+Under **Advanced settings** the inspector shows the window broken into prompt
+and response, warns as it fills, and disables **Run** on overflow — overflow is
+*silent truncation*, not an error. You can pin an explicit length there too,
+for output deliberately shorter than it could be. Deep lineages want SmolLM2 and
+its 8k window.
 
 ### One upside
 

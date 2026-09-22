@@ -6,6 +6,7 @@ import {
   MODELS,
   MODEL_IDS,
   contextPressure,
+  effectiveMaxNewTokens,
   estimateTokens,
   formatDuration,
   formatMb,
@@ -18,6 +19,7 @@ import type { ContextBlock, ModelId } from '../types'
 import { Badge, Button, Input, Label, NumberField, Segmented, Select } from './ui'
 
 /** How the Composed tab was last read. Remembered, since it is a reading habit. */
+const ADVANCED_KEY = 'promptcanvas.advancedOpen'
 const COMPOSED_VIEW_KEY = 'promptcanvas.composedView'
 const COMPOSED_VIEWS = ['raw', 'rendered'] as const
 type ComposedView = (typeof COMPOSED_VIEWS)[number]
@@ -53,6 +55,9 @@ export function Inspector() {
     readPref(COMPOSED_VIEW_KEY, COMPOSED_VIEWS, 'raw'),
   )
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [advancedOpen, setAdvancedOpen] = useState(
+    () => readPref(ADVANCED_KEY, ['open', 'closed'] as const, 'closed') === 'open',
+  )
   const lastNode = useRef<string | null>(null)
 
   const node = canvas.nodes.find((n) => n.id === selectedId)
@@ -99,7 +104,14 @@ export function Inspector() {
   const spec = MODELS[node.data.model]
 
   const promptTokens = estimateTokens(composed.text) + estimateTokens(composed.system)
-  const pressure = contextPressure(node.data.model, promptTokens, node.data.maxNewTokens)
+  const isAuto = node.data.maxNewTokens === 'auto'
+  const newTokens = effectiveMaxNewTokens(
+    node.data.model,
+    promptTokens,
+    node.data.maxNewTokens,
+    MIN_NEW_TOKENS,
+  )
+  const pressure = contextPressure(node.data.model, promptTokens, newTokens)
 
   return (
     <div className="flex h-full flex-col">
@@ -250,97 +262,163 @@ export function Inspector() {
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <Label>Model</Label>
-                <Select<ModelId>
-                  value={node.data.model}
-                  onChange={(v) => update(node.id, { model: v })}
-                  options={MODEL_IDS.map((m) => ({
-                    value: m,
-                    label: `${MODELS[m].label} — ${MODELS[m].size}`,
-                  }))}
-                />
-              </div>
-              <div>
-                <Label>Max new tokens</Label>
-                <NumberField
-                  value={node.data.maxNewTokens}
-                  onChange={(v) => update(node.id, { maxNewTokens: v })}
-                  min={MIN_NEW_TOKENS}
-                  max={spec.contextTokens}
-                  step={64}
-                  suffix="tok"
-                />
-              </div>
-            </div>
-
-            <div className="-mt-2 flex flex-wrap items-center gap-1">
-              {presetsWithin(TOKEN_PRESETS, MIN_NEW_TOKENS, spec.contextTokens).map((p) => (
-                <button
-                  key={p}
-                  onClick={() => update(node.id, { maxNewTokens: p })}
-                  className={`rounded px-1.5 py-0.5 text-[11px] ${
-                    node.data.maxNewTokens === p
-                      ? 'bg-[var(--color-accent)] text-[#0b0d12]'
-                      : 'text-[var(--color-muted)] hover:bg-[var(--color-edge)] hover:text-[var(--color-ink)]'
-                  }`}
-                >
-                  {p}
-                </button>
-              ))}
-              <span className="ml-auto text-[10.5px] text-[#5a6175]">
-                {MIN_NEW_TOKENS}–{formatTokens(spec.contextTokens)}, shared with the prompt
-              </span>
-            </div>
-
-            <p className="-mt-2 text-[11px] leading-relaxed text-[#5a6175]">
-              {formatMb(spec.downloadMb)} download, once · {formatTokens(spec.contextTokens)} token
-              context. {spec.caveat}
-            </p>
-
-            {/* Context is the binding constraint here, not money. */}
-            <div
-              className={`rounded-md border px-2.5 py-2 text-[11px] leading-relaxed ${
-                pressure.level === 'over'
-                  ? 'border-[var(--color-danger)]/50 bg-[#3a1f22]/40 text-[var(--color-danger)]'
-                  : pressure.level === 'tight'
-                    ? 'border-[var(--color-warn)]/50 bg-[#3a3218]/40 text-[var(--color-warn)]'
-                    : 'border-[var(--color-edge)] text-[var(--color-muted)]'
-              }`}
-            >
-              <div className="mb-1 flex items-center justify-between">
-                <span>Context budget</span>
-                <span>
-                  ~{formatTokens(pressure.used)} / {formatTokens(pressure.limit)}
+            {/* Everything here is a default that rarely needs touching, so it
+                stays folded away rather than competing with the prompt. */}
+            <div className="rounded-md border border-[var(--color-edge)]">
+              <button
+                onClick={() => {
+                  const next = !advancedOpen
+                  setAdvancedOpen(next)
+                  writePref(ADVANCED_KEY, next ? 'open' : 'closed')
+                }}
+                className="flex w-full items-center gap-1.5 px-2.5 py-2 text-[12px] text-[var(--color-muted)] hover:text-[var(--color-ink)]"
+              >
+                <span className="font-mono text-[10px]">{advancedOpen ? 'v' : '>'}</span>
+                <span>Advanced settings</span>
+                <span className="ml-auto truncate text-[10.5px] text-[#5a6175]">
+                  {spec.label} &middot; {isAuto ? 'auto length' : `${formatTokens(newTokens)} max`}
                 </span>
-              </div>
-              <div className="h-1 overflow-hidden rounded bg-[var(--color-edge)]">
-                <div
-                  className={`h-full ${
-                    pressure.level === 'over'
-                      ? 'bg-[var(--color-danger)]'
-                      : pressure.level === 'tight'
-                        ? 'bg-[var(--color-warn)]'
-                        : 'bg-[var(--color-accent)]'
-                  }`}
-                  style={{ width: `${Math.min(100, pressure.ratio * 100)}%` }}
-                />
-              </div>
-              {pressure.level === 'over' && (
-                <p className="mt-1">
-                  Prompt plus max new tokens exceeds the window. The model will silently see a
-                  truncated prompt. Disable a context block, shorten the ancestry, lower max new
-                  tokens, or switch to a model with a larger window.
-                </p>
-              )}
-              {pressure.level === 'tight' && (
-                <p className="mt-1">
-                  Close to the limit. Branching further down this lineage will overflow it.
-                </p>
+              </button>
+
+              {advancedOpen && (
+                <div className="space-y-3 border-t border-[var(--color-edge)] p-2.5">
+                  <div>
+                    <Label>Model</Label>
+                    <Select<ModelId>
+                      value={node.data.model}
+                      onChange={(v) => update(node.id, { model: v })}
+                      options={MODEL_IDS.map((m) => ({
+                        value: m,
+                        label: `${MODELS[m].label} - ${MODELS[m].size}`,
+                      }))}
+                    />
+                    <p className="mt-1 text-[11px] leading-relaxed text-[#5a6175]">
+                      {formatMb(spec.downloadMb)} download, once &middot;{' '}
+                      {formatTokens(spec.contextTokens)} token context. {spec.caveat}
+                    </p>
+                  </div>
+
+                  <div>
+                    <div className="mb-1.5 flex items-center gap-2">
+                      <Label>Response length</Label>
+                      <label className="ml-auto flex cursor-pointer items-center gap-1.5 text-[11px] text-[var(--color-muted)]">
+                        <input
+                          type="checkbox"
+                          checked={isAuto}
+                          onChange={(e) =>
+                            update(node.id, {
+                              maxNewTokens: e.target.checked ? 'auto' : newTokens,
+                            })
+                          }
+                          className="accent-[var(--color-accent)]"
+                        />
+                        auto
+                      </label>
+                    </div>
+
+                    {isAuto ? (
+                      <p className="text-[11.5px] leading-relaxed text-[var(--color-muted)]">
+                        Using whatever the prompt leaves free, about {formatTokens(newTokens)}{' '}
+                        tokens here. The exact figure is worked out from the real token count
+                        when the node runs, not from this estimate.
+                      </p>
+                    ) : (
+                      <>
+                        <NumberField
+                          value={newTokens}
+                          onChange={(v) => update(node.id, { maxNewTokens: v })}
+                          min={MIN_NEW_TOKENS}
+                          max={spec.contextTokens}
+                          step={64}
+                          suffix="tok"
+                        />
+                        <div className="mt-1 flex flex-wrap items-center gap-1">
+                          {presetsWithin(TOKEN_PRESETS, MIN_NEW_TOKENS, spec.contextTokens).map(
+                            (preset) => (
+                              <button
+                                key={preset}
+                                onClick={() => update(node.id, { maxNewTokens: preset })}
+                                className={`rounded px-1.5 py-0.5 text-[11px] ${
+                                  node.data.maxNewTokens === preset
+                                    ? 'bg-[var(--color-accent)] text-[#0b0d12]'
+                                    : 'text-[var(--color-muted)] hover:bg-[var(--color-edge)] hover:text-[var(--color-ink)]'
+                                }`}
+                              >
+                                {preset}
+                              </button>
+                            ),
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  {/* Broken into its parts. One combined number reads as though
+                      the app mangled your figure, because it quietly folds in
+                      the prompt as well. */}
+                  <div
+                    className={`rounded-md border px-2.5 py-2 text-[11px] leading-relaxed ${
+                      pressure.level === 'over'
+                        ? 'border-[var(--color-danger)]/50 bg-[#3a1f22]/40 text-[var(--color-danger)]'
+                        : pressure.level === 'tight'
+                          ? 'border-[var(--color-warn)]/50 bg-[#3a3218]/40 text-[var(--color-warn)]'
+                          : 'border-[var(--color-edge)] text-[var(--color-muted)]'
+                    }`}
+                  >
+                    <div className="mb-1.5 flex items-baseline justify-between gap-2">
+                      <span>Context window</span>
+                      <span className="font-mono text-[10.5px]">
+                        {formatTokens(pressure.used)} / {formatTokens(pressure.limit)}
+                      </span>
+                    </div>
+                    <div className="flex h-1.5 overflow-hidden rounded bg-[var(--color-edge)]">
+                      <div
+                        className="h-full bg-[var(--color-muted)]"
+                        style={{
+                          width: `${Math.min(100, (promptTokens / pressure.limit) * 100)}%`,
+                        }}
+                      />
+                      <div
+                        className={`h-full ${
+                          pressure.level === 'over'
+                            ? 'bg-[var(--color-danger)]'
+                            : 'bg-[var(--color-accent)]'
+                        }`}
+                        style={{
+                          width: `${Math.min(
+                            Math.max(0, 100 - (promptTokens / pressure.limit) * 100),
+                            (newTokens / pressure.limit) * 100,
+                          )}%`,
+                        }}
+                      />
+                    </div>
+                    <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[10.5px]">
+                      <span>
+                        <span className="mr-1 inline-block h-2 w-2 rounded-sm bg-[var(--color-muted)] align-middle" />
+                        ~{formatTokens(promptTokens)} prompt
+                      </span>
+                      <span>
+                        <span className="mr-1 inline-block h-2 w-2 rounded-sm bg-[var(--color-accent)] align-middle" />
+                        {formatTokens(newTokens)} response
+                      </span>
+                    </div>
+                    {pressure.level === 'over' && (
+                      <p className="mt-1.5">
+                        Over the window, so the model would see a truncated prompt. Disable a
+                        context block, shorten the ancestry, or move to a model with a larger
+                        window.
+                      </p>
+                    )}
+                    {pressure.level === 'tight' && !isAuto && (
+                      <p className="mt-1.5">
+                        Close to the limit. Switching response length back to auto keeps this in
+                        range as the branch grows.
+                      </p>
+                    )}
+                  </div>
+                </div>
               )}
             </div>
-
           </div>
         )}
 

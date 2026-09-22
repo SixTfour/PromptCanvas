@@ -1,5 +1,5 @@
 import type { ComposedPrompt } from '../types'
-import { DEFAULT_MODEL, type Dtype, type ModelId } from './models'
+import { DEFAULT_MODEL, type Dtype, type MaxNewTokens, type ModelId } from './models'
 
 /**
  * Main-thread client for the inference worker.
@@ -308,7 +308,7 @@ export function generate(
   runId: string,
   modelId: ModelId,
   prompt: ComposedPrompt,
-  maxNewTokens: number,
+  maxNewTokens: MaxNewTokens,
   handlers: GenerateHandlers,
 ): Promise<RunStats> {
   const run = queue.then(async () => {

@@ -1,4 +1,4 @@
-import type { ModelId } from './lib/models'
+import type { MaxNewTokens, ModelId } from './lib/models'
 
 /**
  * Core data model.
@@ -13,7 +13,7 @@ import type { ModelId } from './lib/models'
  * Diff & Merge meaningful: you are diffing structured prompt text, not dialogue.
  */
 
-export type { ModelId }
+export type { MaxNewTokens, ModelId }
 
 /** A single unit of prompt text. Inherited blocks come from ancestors. */
 export interface ContextBlock {
@@ -62,8 +62,11 @@ export interface PromptNodeData extends Record<string, unknown> {
   /** The final instruction. Inherited from the nearest ancestor that sets one. */
   instruction?: string
   model: ModelId
-  /** Upper bound on generated tokens. Counts against the model's context window. */
-  maxNewTokens: number
+  /**
+   * Upper bound on generated tokens, counted against the same context window as
+   * the prompt. `'auto'` uses whatever the prompt leaves free.
+   */
+  maxNewTokens: MaxNewTokens
   runs: Run[]
   /** Set on nodes produced by Diff & Merge, for provenance in the UI. */
   mergedFrom?: [string, string]
