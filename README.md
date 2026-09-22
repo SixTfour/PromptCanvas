@@ -78,7 +78,7 @@ visible rather than magic: the Composed tab shows the prompt verbatim.
 ```bash
 npm install
 npm run dev      # http://localhost:5173
-npm test         # 186 tests over DAG, composition, diff, context budget and errors
+npm test         # 190 tests over DAG, composition, diff, context budget and errors
 npm run build
 ```
 

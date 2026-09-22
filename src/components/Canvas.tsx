@@ -5,11 +5,12 @@ import {
   MiniMap,
   ReactFlow,
   applyNodeChanges,
+  useReactFlow,
   type Edge,
   type Node,
   type NodeChange,
 } from '@xyflow/react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { NODE_H, NODE_W } from '../lib/layout'
 import { useCanvas } from '../store/useCanvas'
 import { PromptNode } from './nodes/PromptNode'
@@ -32,6 +33,39 @@ export function CanvasView() {
    * it as having none: the minimap skips such nodes entirely and renders empty.
    */
   const [rfNodes, setRfNodes] = useState<Node[]>([])
+
+  /**
+   * Bring a newly created node into view.
+   *
+   * `fitView` only runs on mount, and a new branch is placed below the lowest
+   * existing sibling rather than beside its parent, so the third branch off a
+   * node lands outside the viewport. The button then looks broken: the node is
+   * created, edged and selected, and nothing visibly happens.
+   *
+   * Only a single addition counts, and only when it is the node the store just
+   * selected. Loading a session adds every node at once, and panning to an
+   * arbitrary one of those would fight the fitView that belongs there.
+   */
+  const { setCenter, getZoom } = useReactFlow()
+  const known = useRef<Set<string> | null>(null)
+
+  useEffect(() => {
+    const ids = canvas.nodes.map((n) => n.id)
+    const previous = known.current
+    known.current = new Set(ids)
+    if (!previous) return
+
+    const added = ids.filter((id) => !previous.has(id))
+    if (added.length !== 1 || added[0] !== selectedId) return
+
+    const node = canvas.nodes.find((n) => n.id === added[0])
+    if (!node) return
+    // Animated rather than a jump, so it stays clear where the node came from.
+    void setCenter(node.position.x + NODE_W / 2, node.position.y + NODE_H / 2, {
+      zoom: getZoom(),
+      duration: 400,
+    })
+  }, [canvas.nodes, selectedId, setCenter, getZoom])
 
   useEffect(() => {
     setRfNodes((prev) => {
