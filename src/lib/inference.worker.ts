@@ -64,6 +64,12 @@ interface Loaded {
   dtype: Dtype
 }
 
+/**
+ * Enough to break degenerate loops without flattening legitimate repetition —
+ * a ticket format reuses "**Steps**" and numbered prefixes quite properly.
+ */
+const REPETITION_PENALTY = 1.15
+
 let loaded: Loaded | null = null
 let stopper: InterruptableStoppingCriteria | null = null
 
@@ -138,6 +144,7 @@ async function producesOutput(
       ...(inputs as unknown as Record<string, unknown>),
       max_new_tokens: 8,
       do_sample: false,
+      repetition_penalty: REPETITION_PENALTY,
       streamer,
     })
     return text.trim().length > 0
@@ -279,7 +286,21 @@ async function generate(
     await model.generate({
       ...(inputs as unknown as Record<string, unknown>),
       max_new_tokens: limit,
+      /*
+       * Greedy, so that re-running an unchanged prompt returns identical text
+       * and comparing two branches measures the prompt rather than sampling
+       * noise.
+       *
+       * The repetition penalty is what makes greedy usable. Without it these
+       * models fall into the two classic degenerate modes: copying the last
+       * block of the prompt back verbatim instead of acting on it, and looping
+       * a phrase across list items. Measured on SmolLM 135M, the same prompt
+       * echoes its input under plain greedy and rewrites properly with the
+       * penalty applied. It is a deterministic transform on the logits, so
+       * reproducibility is untouched.
+       */
       do_sample: false,
+      repetition_penalty: REPETITION_PENALTY,
       streamer,
       stopping_criteria: stopper,
     })
