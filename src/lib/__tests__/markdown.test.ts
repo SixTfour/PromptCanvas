@@ -5,7 +5,7 @@ import {
   toggleLinePrefix,
   toggleOrderedList,
   toggleWrap,
-} from './markdown'
+} from '../markdown'
 
 describe('markdown editor transforms', () => {
   it('wraps a selection and leaves the caret around the same words', () => {

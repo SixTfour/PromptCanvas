@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { type KeyLike, isRedo, isTypingTarget, isUndo } from './keys'
+import { type KeyLike, isRedo, isTypingTarget, isUndo } from '../keys'
 
 describe('undo and redo shortcuts', () => {
   const MAC = true

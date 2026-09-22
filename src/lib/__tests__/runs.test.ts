@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import type { Run } from '../types'
-import { DEFAULT_MODEL } from './models'
-import { isRunOpen, orderRunsNewestFirst, runPreview } from './runs'
+import type { Run } from '../../types'
+import { DEFAULT_MODEL } from '../models'
+import { isRunOpen, orderRunsNewestFirst, runPreview } from '../runs'
 
 describe('run list', () => {
   const run = (id: string, over: Partial<Run> = {}): Run => ({

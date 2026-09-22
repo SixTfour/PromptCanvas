@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { starter, withMerge } from '../test/fixtures'
-import { ancestorChain, composePrompt, parentsOf } from './compose'
+import { starter, withMerge } from '../../test/fixtures'
+import { ancestorChain, composePrompt, parentsOf } from '../compose'
 
 describe('DAG traversal', () => {
   it('walks a plain branch root-first', () => {

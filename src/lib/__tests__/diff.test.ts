@@ -6,7 +6,7 @@ import {
   countChanges,
   segmentPhrases,
   similarity,
-} from './diff'
+} from '../diff'
 
 describe('phrase diff and merge', () => {
   it('keeps list items whole rather than splitting them mid-bullet', () => {

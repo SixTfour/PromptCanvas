@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { sessionIdFromSearch, withSessionParam } from './url'
+import { sessionIdFromSearch, withSessionParam } from '../url'
 
 describe('session URLs', () => {
   const BASE = 'https://promptcanvas.example/app'

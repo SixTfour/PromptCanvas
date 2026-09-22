@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { filterSessions, matchedInBody, matchesQuery, orderSessions } from './search'
-import type { CanvasSummary } from './storage'
+import { filterSessions, matchedInBody, matchesQuery, orderSessions } from '../search'
+import type { CanvasSummary } from '../storage'
 
 describe('session search', () => {
   const session = (over: Partial<CanvasSummary> = {}): CanvasSummary => ({

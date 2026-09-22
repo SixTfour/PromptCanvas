@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { type StorageLike, readPref, writePref } from './prefs'
+import { type StorageLike, readPref, writePref } from '../prefs'
 
 describe('remembered view preferences', () => {
   function fakeStorage(initial: Record<string, string> = {}) {

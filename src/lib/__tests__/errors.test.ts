@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { friendlyError } from './errors'
+import { friendlyError } from '../errors'
 
 describe('error messages for local inference', () => {
   it('names the out-of-memory case and suggests a smaller model', () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatRelativeTime } from './time'
+import { formatRelativeTime } from '../time'
 
 describe('relative timestamps', () => {
   const NOW = new Date('2026-06-15T12:00:00Z').getTime()

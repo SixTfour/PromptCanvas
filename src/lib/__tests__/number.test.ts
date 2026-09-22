@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { commitNumber, presetsWithin } from './number'
+import { commitNumber, presetsWithin } from '../number'
 
 describe('committing a typed number', () => {
   const MIN = 16

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_MODEL } from './models'
-import { migrateCanvas, shortSessionId } from './storage'
+import { DEFAULT_MODEL } from '../models'
+import { migrateCanvas, shortSessionId } from '../storage'
 
 describe('session id display', () => {
   it('leaves a normally generated id alone', () => {

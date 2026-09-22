@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { starter } from '../test/fixtures'
-import { composePrompt } from './compose'
+import { starter } from '../../test/fixtures'
+import { composePrompt } from '../compose'
 import {
   DEFAULT_MODEL,
   HALF_PRECISION,
@@ -12,7 +12,7 @@ import {
   estimateTokens,
   modelIdFromUrl,
   type Dtype,
-} from './models'
+} from '../models'
 
 describe('local model registry', () => {
   it('defaults to the smallest model, so the first download is the cheapest', () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { backendAdvice } from './backend'
+import { backendAdvice } from '../backend'
 
 describe('backend advice', () => {
   it('says nothing when the GPU is already in use', () => {

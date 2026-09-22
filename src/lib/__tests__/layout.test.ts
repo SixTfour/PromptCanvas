@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { starter, withMerge } from '../test/fixtures'
-import { layoutCanvas } from './layout'
+import { starter, withMerge } from '../../test/fixtures'
+import { layoutCanvas } from '../layout'
 
 describe('layout', () => {
   it('lays out a DAG with a two-parent merge without losing nodes', () => {
