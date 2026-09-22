@@ -1,5 +1,5 @@
 import type { ComposedPrompt } from '../types'
-import { DEFAULT_MODEL, type Dtype, type MaxNewTokens, type ModelId } from './models'
+import { type Dtype, type MaxNewTokens, type ModelId } from './models'
 
 /**
  * Main-thread client for the inference worker.
@@ -56,10 +56,6 @@ export function downloadedModels(): ModelId[] {
   }
 }
 
-export function isDownloaded(modelId: ModelId): boolean {
-  return downloadedModels().includes(modelId)
-}
-
 function markDownloaded(modelId: ModelId) {
   try {
     const all = new Set(downloadedModels())
@@ -112,14 +108,6 @@ function rememberVerified(modelId: ModelId, dev: string, dtype: Dtype) {
     localStorage.setItem(LS_VERIFIED, JSON.stringify(map))
   } catch {
     /* only an optimisation */
-  }
-}
-
-export function forgetDownloaded(): void {
-  try {
-    localStorage.removeItem(LS_DOWNLOADED)
-  } catch {
-    /* nothing to do */
   }
 }
 
@@ -257,10 +245,6 @@ export function currentDtype(): Dtype | null {
   return activeDtype
 }
 
-export function isModelReady(modelId: ModelId = DEFAULT_MODEL): boolean {
-  return readyModel === modelId
-}
-
 /** The model currently resident in the worker, if any. */
 export function loadedModel(): ModelId | null {
   return readyModel
@@ -288,7 +272,7 @@ export type ChatMessage = { role: 'system' | 'user'; content: string }
  * 135M tokenizer rather than assumed — so the system prompt is sent as its own
  * turn instead of being glued onto the front of the user message.
  */
-export function toMessages(prompt: ComposedPrompt): ChatMessage[] {
+function toMessages(prompt: ComposedPrompt): ChatMessage[] {
   const messages: ChatMessage[] = []
   if (prompt.system.trim()) messages.push({ role: 'system', content: prompt.system.trim() })
   messages.push({ role: 'user', content: prompt.text.trim() || 'Hello.' })
@@ -328,11 +312,6 @@ export function generate(
   // Keep the chain alive even when one run fails, or the queue wedges shut.
   queue = run.catch(() => undefined)
   return run
-}
-
-/** How many generations are waiting or running. */
-export function queueDepth(): number {
-  return pending.size - (pending.has('@load') ? 1 : 0)
 }
 
 /** Bytes each model currently occupies in the browser cache. */

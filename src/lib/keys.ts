@@ -13,7 +13,7 @@ export interface KeyLike {
   altKey?: boolean
 }
 
-export function isMacPlatform(): boolean {
+function isMacPlatform(): boolean {
   const nav = navigator as unknown as {
     userAgentData?: { platform?: string }
     platform?: string

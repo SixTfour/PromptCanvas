@@ -34,7 +34,7 @@ export type Backend = 'webgpu' | 'wasm'
  * produces tokens. Ordering trades quality against the odds of working, and
  * against download size, since a rejected candidate is a wasted fetch.
  */
-export interface DtypeChoices {
+interface DtypeChoices {
   /** Tried in order on WebGPU. */
   webgpu: Dtype[]
   /** Tried in order on CPU. */

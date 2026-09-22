@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { buildStarterCanvas } from '../data/starterCanvas'
 import type { Run } from '../types'
 import { backendAdvice } from './backend'
-import { ancestorChain, composePrompt, descendantsOf, parentsOf } from './compose'
+import { ancestorChain, composePrompt, parentsOf } from './compose'
 import {
   alignPhrases,
   alignRows,
@@ -19,7 +19,7 @@ import { type StorageLike, readPref, writePref } from './prefs'
 import { isRunOpen, orderRunsNewestFirst, runPreview } from './runs'
 import { filterSessions, matchedInBody, matchesQuery, orderSessions } from './search'
 import { type CanvasSummary, migrateCanvas, shortSessionId } from './storage'
-import { sessionIdFromSearch, withSessionParam, withoutSessionParam } from './url'
+import { sessionIdFromSearch, withSessionParam } from './url'
 import { formatRelativeTime } from './time'
 import {
   insertLink,
@@ -94,12 +94,6 @@ describe('DAG traversal', () => {
 
   it('reports both parents of a merge node', () => {
     expect(parentsOf(withMerge, 'n-merged').sort()).toEqual(['n-severity', 'n-terse'])
-  })
-
-  it('finds descendants across the merge join', () => {
-    expect(descendantsOf(withMerge, 'n-root')).toEqual(
-      new Set(['n-terse', 'n-severity', 'n-merged']),
-    )
   })
 
   it('does not hang on a cycle', () => {
@@ -733,15 +727,8 @@ describe('session URLs', () => {
     expect(params.get('session')).toBe('c-abc')
   })
 
-  it('removes the parameter cleanly', () => {
-    const href = withoutSessionParam(withSessionParam(`${BASE}?keep=yes`, 'c-abc'))
-    expect(sessionIdFromSearch(new URL(href).search)).toBeNull()
-    expect(new URL(href).searchParams.get('keep')).toBe('yes')
-  })
-
   it('hands back the input unchanged rather than throwing on a bad URL', () => {
     expect(withSessionParam('not a url', 'c-abc')).toBe('not a url')
-    expect(withoutSessionParam('not a url')).toBe('not a url')
   })
 })
 

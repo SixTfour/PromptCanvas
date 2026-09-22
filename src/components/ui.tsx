@@ -36,32 +36,6 @@ export function Label({ children }: { children: ReactNode }) {
   )
 }
 
-export function Field({
-  value,
-  onChange,
-  placeholder,
-  rows = 3,
-  mono = false,
-}: {
-  value: string
-  onChange: (v: string) => void
-  placeholder?: string
-  rows?: number
-  mono?: boolean
-}) {
-  return (
-    <textarea
-      value={value}
-      rows={rows}
-      placeholder={placeholder}
-      onChange={(e) => onChange(e.target.value)}
-      className={`w-full resize-y rounded-md bg-[var(--color-canvas)] border border-[var(--color-edge)] px-2.5 py-2 text-[13px] leading-relaxed text-[var(--color-ink)] placeholder:text-[#5a6175] focus:outline-none focus:border-[var(--color-accent)] ${
-        mono ? 'font-mono text-xs' : ''
-      }`}
-    />
-  )
-}
-
 export function Input({
   value,
   onChange,

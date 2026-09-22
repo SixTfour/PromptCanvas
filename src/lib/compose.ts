@@ -9,16 +9,12 @@ import type { Canvas, CanvasNode, ComposedPrompt, ContextBlock } from '../types'
  * lineages, de-duplicated, in a stable order.
  */
 
-export function nodeMap(canvas: Canvas): Map<string, CanvasNode> {
+function nodeMap(canvas: Canvas): Map<string, CanvasNode> {
   return new Map(canvas.nodes.map((n) => [n.id, n]))
 }
 
 export function parentsOf(canvas: Canvas, nodeId: string): string[] {
   return canvas.edges.filter((e) => e.target === nodeId).map((e) => e.source)
-}
-
-export function childrenOf(canvas: Canvas, nodeId: string): string[] {
-  return canvas.edges.filter((e) => e.source === nodeId).map((e) => e.target)
 }
 
 /**
@@ -44,22 +40,6 @@ export function ancestorChain(canvas: Canvas, nodeId: string): string[] {
   }
 
   visit(nodeId, new Set())
-  return out
-}
-
-/** Every descendant of `nodeId`, for subtree operations like delete. */
-export function descendantsOf(canvas: Canvas, nodeId: string): Set<string> {
-  const out = new Set<string>()
-  const stack = [nodeId]
-  while (stack.length) {
-    const cur = stack.pop()!
-    for (const c of childrenOf(canvas, cur)) {
-      if (!out.has(c)) {
-        out.add(c)
-        stack.push(c)
-      }
-    }
-  }
   return out
 }
 
@@ -113,8 +93,8 @@ const KIND_HEADING: Record<ContextBlock['kind'], string> = {
   example: 'Example',
 }
 
-/** The human-readable / API-bound rendering of a composed prompt's user turn. */
-export function renderPromptText(
+/** The rendering of a composed prompt's user turn. Internal to composePrompt. */
+function renderPromptText(
   blocks: Array<Pick<ContextBlock, 'label' | 'text' | 'kind'>>,
   instruction: string,
 ): string {

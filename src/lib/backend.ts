@@ -9,7 +9,7 @@
  * is a bad trade.
  */
 
-export type BackendState =
+type BackendState =
   /** WebGPU is available and will be used. */
   | 'gpu'
   /**

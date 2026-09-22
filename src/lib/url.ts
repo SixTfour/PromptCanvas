@@ -13,7 +13,7 @@
  * document.
  */
 
-export const SESSION_PARAM = 'session'
+const SESSION_PARAM = 'session'
 
 /** The session id named by a query string, if any. */
 export function sessionIdFromSearch(search: string): string | null {
@@ -42,13 +42,3 @@ export function withSessionParam(href: string, id: string): string {
   }
 }
 
-/** The same URL with the session id removed. */
-export function withoutSessionParam(href: string): string {
-  try {
-    const url = new URL(href)
-    url.searchParams.delete(SESSION_PARAM)
-    return url.toString()
-  } catch {
-    return href
-  }
-}
