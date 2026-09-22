@@ -21,7 +21,7 @@ import {
 import { layoutCanvas } from './layout'
 import { clamp, commitNumber, presetsWithin } from './number'
 import { type StorageLike, readPref, writePref } from './prefs'
-import { filterSessions, matchedInBody, matchesQuery } from './search'
+import { filterSessions, matchedInBody, matchesQuery, orderSessions } from './search'
 import { type CanvasSummary, shortSessionId } from './storage'
 import { sessionIdFromSearch, withSessionParam, withoutSessionParam } from './url'
 import { formatRelativeTime } from './time'
@@ -915,5 +915,49 @@ describe('committing a typed number', () => {
     ])
     // A 2048-token model should not be offered 4096 as a one-click choice.
     expect(presetsWithin([128, 256, 4096], 16, 2048)).toEqual([128, 256])
+  })
+})
+
+describe('session ordering', () => {
+  const s = (id: string, updatedAt: number): CanvasSummary => ({
+    id,
+    name: id,
+    updatedAt,
+    nodeCount: 1,
+    runCount: 0,
+    haystack: id,
+  })
+
+  it('pins the open session to the top even when it is the oldest', () => {
+    const list = [s('a', 300), s('b', 200), s('open', 100)]
+    expect(orderSessions(list, 'open').map((x) => x.id)).toEqual(['open', 'a', 'b'])
+  })
+
+  it('orders everything else by when it was last edited or run', () => {
+    const list = [s('old', 100), s('new', 300), s('mid', 200)]
+    expect(orderSessions(list, null).map((x) => x.id)).toEqual(['new', 'mid', 'old'])
+  })
+
+  // Equal timestamps are common right after a bulk operation; without a
+  // tie-break the list reshuffles between renders for no visible reason.
+  it('is stable when timestamps are equal', () => {
+    const list = [s('c', 100), s('a', 100), s('b', 100)]
+    const once = orderSessions(list, null).map((x) => x.id)
+    const twice = orderSessions([...list].reverse(), null).map((x) => x.id)
+    expect(once).toEqual(twice)
+  })
+
+  it('does nothing surprising when the open session is not in the list', () => {
+    const list = [s('a', 200), s('b', 100)]
+    expect(orderSessions(list, 'missing').map((x) => x.id)).toEqual(['a', 'b'])
+  })
+
+  it('keeps every session it was given', () => {
+    const list = [s('a', 200), s('open', 100), s('b', 300)]
+    expect(orderSessions(list, 'open')).toHaveLength(3)
+  })
+
+  it('handles an empty list', () => {
+    expect(orderSessions([], 'open')).toEqual([])
   })
 })

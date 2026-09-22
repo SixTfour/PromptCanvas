@@ -16,8 +16,17 @@ import type { Canvas } from '../types'
 const PREFIX = 'canvas:'
 const LAST_OPENED = 'promptcanvas.lastCanvasId'
 
+/**
+ * Write a canvas, keeping its own `updatedAt`.
+ *
+ * Stamping the save time here made "last edited" mean "last written", and the
+ * app writes for reasons that are not edits — saving the outgoing canvas when
+ * switching sessions, persisting on restore. Merely opening a different session
+ * would float the one you left to the top of the list. The store sets
+ * `updatedAt` when something actually changes; this just records it.
+ */
 export async function saveCanvas(canvas: Canvas): Promise<void> {
-  await set(PREFIX + canvas.id, { ...canvas, updatedAt: Date.now() })
+  await set(PREFIX + canvas.id, { ...canvas, updatedAt: canvas.updatedAt || Date.now() })
 }
 
 export async function loadCanvas(id: string): Promise<Canvas | undefined> {

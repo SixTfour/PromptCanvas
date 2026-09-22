@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { filterSessions, matchedInBody } from '../lib/search'
+import { filterSessions, matchedInBody, orderSessions } from '../lib/search'
 import { type CanvasSummary, shortSessionId, summarise } from '../lib/storage'
 import { formatRelativeTime } from '../lib/time'
 import { withSessionParam } from '../lib/url'
@@ -46,7 +46,7 @@ export function SessionSidebar() {
   const sessions = useMemo(() => {
     const live = summarise(canvas)
     const rest = (saved ?? []).filter((s) => s.id !== canvas.id)
-    return [live, ...rest].sort((a, b) => b.updatedAt - a.updatedAt)
+    return orderSessions([live, ...rest], canvas.id)
   }, [saved, canvas])
 
   /**
@@ -57,7 +57,12 @@ export function SessionSidebar() {
   const unsavedId =
     saved !== null && !saved.some((s) => s.id === canvas.id) ? canvas.id : null
 
-  const visible = useMemo(() => filterSessions(sessions, query), [sessions, query])
+  // Filter first, then order, so a search that excludes the open session does
+  // not pin it above the results the user asked for.
+  const visible = useMemo(
+    () => orderSessions(filterSessions(sessions, query), canvas.id),
+    [sessions, query, canvas.id],
+  )
 
   if (!open) {
     return (
@@ -137,16 +142,20 @@ export function SessionSidebar() {
           </p>
         )}
 
-        {visible.map((s) => {
+        {visible.map((s, i) => {
           const isCurrent = s.id === canvas.id
+          const pinned = isCurrent && i === 0 && visible.length > 1
           return (
             <div
               key={s.id}
+              // A rule under the pinned row explains why it is first even when
+              // something else was edited more recently.
+              style={pinned ? { marginBottom: 10 } : undefined}
               className={`mb-1 rounded-md border px-2.5 py-2 ${
                 isCurrent
                   ? 'border-[var(--color-accent)]/50 bg-[#232a4d]/20'
                   : 'border-transparent hover:border-[var(--color-edge)] hover:bg-[var(--color-edge)]/20'
-              }`}
+              } ${pinned ? 'relative after:absolute after:-bottom-[5px] after:left-2 after:right-2 after:h-px after:bg-[var(--color-edge)]' : ''}`}
             >
               <button
                 onClick={() => !isCurrent && void openSession(s.id)}

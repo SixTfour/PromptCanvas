@@ -57,7 +57,7 @@ structured prompt text, not dialogue.
 ```bash
 npm install
 npm run dev      # http://localhost:5173
-npm test         # 107 tests over DAG, composition, diff, context budget and errors
+npm test         # 113 tests over DAG, composition, diff, context budget and errors
 npm run build
 ```
 
@@ -187,8 +187,9 @@ the Hugging Face CDN and nothing else.
 
 Every canvas is saved as you work, and the one you had open is restored when you
 come back — refreshing to restart the inference worker no longer costs you the
-canvas. A collapsible **left rail** lists what is saved, newest first, with the node and
-generation counts that tell you which one you actually want. Open, duplicate or
+canvas. A collapsible **left rail** lists what is saved. The open session is pinned to
+the top; everything else is ordered by when it was last edited or run, with the
+node and generation counts that tell you which one you actually want. Open, duplicate or
 delete one from there, or start a new session. Collapsed it stays as a narrow
 strip rather than vanishing, and the state is remembered.
 
