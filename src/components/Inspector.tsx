@@ -8,6 +8,7 @@ import {
   contextPressure,
   effectiveMaxNewTokens,
   estimateTokens,
+  modelMaxNewTokens,
   formatDuration,
   formatMb,
   formatTokens,
@@ -307,7 +308,9 @@ export function Inspector() {
                           checked={isAuto}
                           onChange={(e) =>
                             update(node.id, {
-                              maxNewTokens: e.target.checked ? 'auto' : newTokens,
+                              maxNewTokens: e.target.checked
+                                ? 'auto'
+                                : modelMaxNewTokens(node.data.model),
                             })
                           }
                           className="accent-[var(--color-accent)]"
@@ -318,9 +321,11 @@ export function Inspector() {
 
                     {isAuto ? (
                       <p className="text-[11.5px] leading-relaxed text-[var(--color-muted)]">
-                        Using whatever the prompt leaves free, about {formatTokens(newTokens)}{' '}
-                        tokens here. The exact figure is worked out from the real token count
-                        when the node runs, not from this estimate.
+                        This model&apos;s maximum is{' '}
+                        {formatTokens(modelMaxNewTokens(node.data.model))} tokens, shared with
+                        the prompt — so about {formatTokens(newTokens)} here, and less as this
+                        branch grows. Worked out from the real token count when the node runs,
+                        not from this estimate.
                       </p>
                     ) : (
                       <>
@@ -349,6 +354,14 @@ export function Inspector() {
                             ),
                           )}
                         </div>
+                        {typeof node.data.maxNewTokens === 'number' &&
+                          newTokens < node.data.maxNewTokens && (
+                            <p className="mt-1 text-[11px] leading-relaxed text-[var(--color-warn)]">
+                              Reduced to {formatTokens(newTokens)} to fit alongside the prompt.
+                              Your cap of {formatTokens(node.data.maxNewTokens)} applies again
+                              on a shorter branch.
+                            </p>
+                          )}
                       </>
                     )}
                   </div>

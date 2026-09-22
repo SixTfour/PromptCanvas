@@ -30,7 +30,27 @@ export async function saveCanvas(canvas: Canvas): Promise<void> {
 }
 
 export async function loadCanvas(id: string): Promise<Canvas | undefined> {
-  return get<Canvas>(PREFIX + id)
+  const c = await get<Canvas>(PREFIX + id)
+  return c ? migrateCanvas(c) : c
+}
+
+/**
+ * Bring an older saved canvas up to date.
+ *
+ * Response length used to be a fixed 256 on every node, which nobody chose —
+ * it was simply the default before length was worked out from the prompt.
+ * Those become `'auto'`, so old sessions behave like new ones. Any other number
+ * was set deliberately and is left alone.
+ */
+export function migrateCanvas(c: Canvas): Canvas {
+  const LEGACY_DEFAULT = 256
+  let changed = false
+  const nodes = c.nodes.map((n) => {
+    if (n.data.maxNewTokens !== LEGACY_DEFAULT) return n
+    changed = true
+    return { ...n, data: { ...n.data, maxNewTokens: 'auto' as const } }
+  })
+  return changed ? { ...c, nodes } : c
 }
 
 export async function deleteCanvas(id: string): Promise<void> {
@@ -148,7 +168,7 @@ export function importCanvas(json: string): Canvas {
   if (!Array.isArray(c.nodes) || !Array.isArray(c.edges) || !c.rootId) {
     throw new Error('Export is missing nodes, edges, or a root node.')
   }
-  return c
+  return migrateCanvas(c)
 }
 
 export function downloadJson(filename: string, contents: string): void {

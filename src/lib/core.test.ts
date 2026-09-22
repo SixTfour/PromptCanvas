@@ -22,7 +22,7 @@ import { layoutCanvas } from './layout'
 import { clamp, commitNumber, presetsWithin } from './number'
 import { type StorageLike, readPref, writePref } from './prefs'
 import { filterSessions, matchedInBody, matchesQuery, orderSessions } from './search'
-import { type CanvasSummary, shortSessionId } from './storage'
+import { type CanvasSummary, migrateCanvas, shortSessionId } from './storage'
 import { sessionIdFromSearch, withSessionParam, withoutSessionParam } from './url'
 import { formatRelativeTime } from './time'
 import {
@@ -39,6 +39,7 @@ import {
   contextPressure,
   effectiveMaxNewTokens,
   estimateTokens,
+  modelMaxNewTokens,
   HALF_PRECISION,
   dtypeCandidates,
   modelIdFromUrl,
@@ -992,11 +993,83 @@ describe('auto response length', () => {
     expect(out + 1000).toBeLessThan(8192)
   })
 
-  it('honours an explicit number', () => {
+  it('honours an explicit cap when there is room for it', () => {
     expect(effectiveMaxNewTokens(BIG, 100, 512)).toBe(512)
   })
 
-  it('never lets an explicit number exceed the model window', () => {
-    expect(effectiveMaxNewTokens(TINY, 0, 99999)).toBe(2048)
+  it('never lets an explicit cap exceed the model window', () => {
+    expect(effectiveMaxNewTokens(TINY, 0, 99999)).toBeLessThanOrEqual(2048)
+  })
+
+  /*
+   * An explicit number is a cap, not a demand. A length chosen on a shallow
+   * branch must not start truncating the prompt three corrections later, so it
+   * is lowered to fit rather than overflowing the window.
+   */
+  it('lowers an explicit cap to fit alongside a long prompt', () => {
+    const capped = effectiveMaxNewTokens(TINY, 1800, 2000)
+    expect(capped).toBeLessThan(2000)
+    expect(capped + 1800).toBeLessThanOrEqual(2048)
+  })
+
+  it('leaves an explicit cap alone once the prompt is short again', () => {
+    expect(effectiveMaxNewTokens(TINY, 100, 512)).toBe(512)
+  })
+
+  it('reports the model maximum independently of any prompt', () => {
+    expect(modelMaxNewTokens(TINY)).toBe(2048)
+    expect(modelMaxNewTokens(BIG)).toBe(8192)
+  })
+
+  it('never exceeds the window for any combination', () => {
+    for (const prompt of [0, 100, 1000, 2047, 5000]) {
+      for (const setting of ['auto' as const, 16, 512, 2048, 99999]) {
+        const out = effectiveMaxNewTokens(TINY, prompt, setting)
+        expect(out, `${prompt}/${setting}`).toBeGreaterThanOrEqual(16)
+        // Either it fits, or the prompt alone already filled the window.
+        expect(out + prompt <= 2048 || prompt >= 2048 - 16, `${prompt}/${setting}`).toBe(true)
+      }
+    }
+  })
+})
+
+describe('migrating older canvases', () => {
+  const nodeWith = (maxNewTokens: unknown) => ({
+    id: 'n1',
+    type: 'prompt' as const,
+    position: { x: 0, y: 0 },
+    data: {
+      title: 'n',
+      blocks: [],
+      model: DEFAULT_MODEL,
+      maxNewTokens,
+      runs: [],
+    },
+  })
+  const canvasWith = (maxNewTokens: unknown) =>
+    ({
+      id: 'c',
+      name: 'c',
+      rootId: 'n1',
+      createdAt: 0,
+      updatedAt: 0,
+      nodes: [nodeWith(maxNewTokens)],
+      edges: [],
+    }) as unknown as Parameters<typeof migrateCanvas>[0]
+
+  // 256 was the hardcoded default before length was derived from the prompt,
+  // so nobody chose it and old sessions should behave like new ones.
+  it('turns the old default into auto', () => {
+    expect(migrateCanvas(canvasWith(256)).nodes[0].data.maxNewTokens).toBe('auto')
+  })
+
+  it('leaves a deliberately chosen number alone', () => {
+    expect(migrateCanvas(canvasWith(512)).nodes[0].data.maxNewTokens).toBe(512)
+    expect(migrateCanvas(canvasWith(128)).nodes[0].data.maxNewTokens).toBe(128)
+  })
+
+  it('leaves an already-migrated canvas untouched', () => {
+    const c = canvasWith('auto')
+    expect(migrateCanvas(c)).toBe(c)
   })
 })

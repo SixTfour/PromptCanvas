@@ -208,7 +208,16 @@ export type MaxNewTokens = number | 'auto'
 const AUTO_MARGIN = 8
 
 /**
- * Resolve a setting to a concrete limit.
+ * How many tokens a node may actually generate.
+ *
+ * The ceiling is always the model's own maximum, reduced by whatever the prompt
+ * has already taken. A stored number is treated as a *cap you asked for*, not a
+ * demand — it is lowered to fit rather than overflowing the window, because a
+ * number chosen when a branch was shallow should not start truncating prompts
+ * three corrections later.
+ *
+ * `'auto'`, the default, is simply no cap of your own: the model's maximum,
+ * minus the prompt.
  *
  * `promptTokens` should be a real count where one is available — the worker has
  * one after applying the chat template — and an estimate elsewhere.
@@ -220,8 +229,14 @@ export function effectiveMaxNewTokens(
   minimum = 16,
 ): number {
   const limit = MODELS[model].contextTokens
-  if (setting !== 'auto') return Math.min(setting, limit)
-  // Never returns zero or less: a prompt that fills the window is reported by
+  const available = limit - promptTokens - AUTO_MARGIN
+  const capped = setting === 'auto' ? available : Math.min(setting, available)
+  // Never zero or negative: a prompt that fills the window is reported by
   // contextPressure rather than silently producing a model that cannot speak.
-  return Math.max(minimum, limit - promptTokens - AUTO_MARGIN)
+  return Math.max(minimum, capped)
+}
+
+/** The largest response this model could ever produce, ignoring the prompt. */
+export function modelMaxNewTokens(model: ModelId): number {
+  return MODELS[model].contextTokens
 }
