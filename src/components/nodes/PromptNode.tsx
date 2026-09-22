@@ -1,6 +1,6 @@
 import { Handle, Position, type NodeProps } from '@xyflow/react'
 import { memo } from 'react'
-import { formatTokens } from '../../lib/models'
+import { formatTokens, specFor } from '../../lib/models'
 import { isMergeStale } from '../../lib/merge'
 import { useCanvas } from '../../store/useCanvas'
 import type { PromptNodeData } from '../../types'
@@ -36,6 +36,7 @@ function PromptNodeInner({ id, data, selected }: NodeProps & { data: PromptNodeD
   const failed = runs.filter((r) => r.status === 'error')
   const stats = done.at(-1)?.stats
   const isMerge = Boolean(data.mergedFrom)
+  const spec = specFor(data.model)
 
   // Prefer the newest completed text, but show a stream in flight as it arrives.
   const shown = busy ? (latest?.text ?? '') : (done.at(-1)?.text ?? latest?.text ?? '')
@@ -57,6 +58,15 @@ function PromptNodeInner({ id, data, selected }: NodeProps & { data: PromptNodeD
           {data.title}
         </span>
         <span className="ml-auto flex shrink-0 items-center gap-1">
+          {/* Which model produced this. Branches can disagree, and a
+              comparison between two models is not the same experiment as a
+              comparison between two prompts. */}
+          <span
+            title={`Runs on ${spec.label}`}
+            className="rounded border border-[var(--color-edge)] px-1 py-px font-mono text-[10px] leading-none text-[var(--color-muted)]"
+          >
+            {spec.short}
+          </span>
           {isMerge && <Badge tone="accent">merge</Badge>}
           {stale && (
             <span title="A branch this was merged from has changed since. Select this node to rebuild it.">

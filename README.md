@@ -78,7 +78,7 @@ visible rather than magic: the Composed tab shows the prompt verbatim.
 ```bash
 npm install
 npm run dev      # http://localhost:5173
-npm test         # 182 tests over DAG, composition, diff, context budget and errors
+npm test         # 186 tests over DAG, composition, diff, context budget and errors
 npm run build
 ```
 
@@ -216,6 +216,14 @@ Two ways to build the merged prompt:
   local model and asks for a single stronger prompt. The meta-prompt is in
   [`src/lib/diff.ts`](src/lib/diff.ts), visible and editable. On a 135M model
   expect this to be weak; picking phrases is the reliable path.
+
+The merged node does not have to inherit a branch's model: the dialog has a
+**Run on** picker, defaulting to the first branch's, so a merge can be promoted
+to a larger model in the same step that creates it. A rebuild can re-point an
+existing merge the same way. Each node shows its model as a short chip in the
+canvas, because two branches on different models are not a prompt comparison —
+the prompt and the model both moved, and the diff cannot say which mattered.
+Comparing *outputs* across mismatched models says so explicitly.
 
 Only **corrections** are merged. Flattening every block into one string diffed
 one branch's source material against the other's instructions and wrote the

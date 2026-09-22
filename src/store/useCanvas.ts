@@ -133,9 +133,15 @@ interface CanvasState {
   updateNodeData: (id: string, patch: Partial<PromptNodeData>) => void
   moveNode: (id: string, position: { x: number; y: number }) => void
   addBranch: (parentId: string, correction?: string) => string
-  addMergeNode: (aId: string, bId: string, mergedText: string, title?: string) => string
+  addMergeNode: (
+    aId: string,
+    bId: string,
+    mergedText: string,
+    model?: ModelId,
+    title?: string,
+  ) => string
   /** Overwrite an existing merge in place, keeping its id, edges and history. */
-  replaceMergeNode: (mergeId: string, mergedText: string) => void
+  replaceMergeNode: (mergeId: string, mergedText: string, model?: ModelId) => void
   deleteNode: (id: string) => void
   relayout: () => void
   resetToStarter: () => void
@@ -507,7 +513,7 @@ export const useCanvas = create<CanvasState>((set, get) => {
      * re-parenting anything. The canvas is a DAG; the two source branches keep
      * their history intact and the provenance stays visible.
      */
-    addMergeNode: (aId, bId, mergedText, title) => {
+    addMergeNode: (aId, bId, mergedText, model, title) => {
       pushHistory()
       const canvas = get().canvas
       const a = canvas.nodes.find((n) => n.id === aId)
@@ -534,7 +540,9 @@ export const useCanvas = create<CanvasState>((set, get) => {
             id: `b-${nanoid(6)}`,
             label: 'merged correction',
           }),
-          model: a.data.model,
+          // The merged node is a new experiment and need not inherit either
+          // branch's model; the merge dialog offers the choice explicitly.
+          model: model ?? a.data.model,
           maxNewTokens: a.data.maxNewTokens,
           runs: [],
         },
@@ -563,9 +571,9 @@ export const useCanvas = create<CanvasState>((set, get) => {
      * edges, its position and its run history, and downstream branches stay
      * attached to it.
      */
-    replaceMergeNode: (mergeId, mergedText) => {
+    replaceMergeNode: (mergeId, mergedText, model) => {
       const canvas = get().canvas
-      const rebuilt = rebuiltMergeNode(canvas, mergeId, mergedText)
+      const rebuilt = rebuiltMergeNode(canvas, mergeId, mergedText, model)
       if (!rebuilt) return
       pushHistory()
       const nodes = canvas.nodes.map((n) => (n.id === mergeId ? rebuilt : n))

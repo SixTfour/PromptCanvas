@@ -13,6 +13,7 @@ import {
 import { generate } from '../lib/engine'
 import { formatError } from '../lib/errors'
 import { carriedContext, correctionText } from '../lib/merge'
+import { MODELS, specFor, type ModelId } from '../lib/models'
 import { useCanvas } from '../store/useCanvas'
 import { MarkdownEditor } from './MarkdownEditor'
 import { Badge, Button, Modal, Segmented } from './ui'
@@ -58,6 +59,16 @@ export function DiffMerge({
   const carried = carriedContext(canvas, [aId, bId])
   const a = canvas.nodes.find((n) => n.id === aId)!
   const b = canvas.nodes.find((n) => n.id === bId)!
+
+  /*
+   * The merged node is a new experiment, so it does not have to inherit a
+   * branch's model. Defaults to what is being rebuilt, or to the first
+   * branch's, which keeps the common case a single click.
+   */
+  const [model, setModel] = useState<ModelId>(target?.data.model ?? a.data.model)
+  // Two branches on different models are not a prompt comparison; the prompt
+  // and the model both moved, and the diff cannot tell you which mattered.
+  const mixedModels = a.data.model !== b.data.model
 
   const [source, setSource] = useState<'prompts' | 'outputs'>('prompts')
   const [view, setView] = useState<'split' | 'unified'>('split')
@@ -139,6 +150,13 @@ export function DiffMerge({
 
   return (
     <Modal title={target ? 'Rebuild merge' : 'Diff & Merge'} onClose={onClose} wide>
+      {mixedModels && source === 'outputs' && (
+        <div className="mb-3 rounded-md border border-[var(--color-warn)]/50 bg-[var(--color-warn)]/10 p-2 text-[11px] leading-relaxed text-[var(--color-ink)]">
+          These branches ran on different models &mdash; {specFor(a.data.model).label} and{' '}
+          {specFor(b.data.model).label}. The outputs differ for two reasons at once, so this diff
+          cannot tell you which one the prompt is responsible for.
+        </div>
+      )}
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <Segmented
           value={source}
@@ -284,6 +302,20 @@ export function DiffMerge({
             ? `Replaces the merged text on "${target.data.title}", keeping its place in the graph, its edges and its runs. Neither branch is modified.`
             : 'Creates a new node with edges from both branches. Neither parent is modified.'}
         </p>
+        <label className="flex shrink-0 items-center gap-1.5 text-[11px] text-[var(--color-muted)]">
+          Run on
+          <select
+            value={model}
+            onChange={(e) => setModel(e.target.value as ModelId)}
+            className="rounded border border-[var(--color-edge)] bg-[var(--color-canvas)] px-1.5 py-1 text-[11px] text-[var(--color-ink)]"
+          >
+            {Object.values(MODELS).map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.label}
+              </option>
+            ))}
+          </select>
+        </label>
         <Button variant="ghost" onClick={onClose}>
           Cancel
         </Button>
@@ -291,8 +323,8 @@ export function DiffMerge({
           variant="primary"
           disabled={!finalText}
           onClick={() => {
-            if (target) replaceMergeNode(target.id, finalText)
-            else addMergeNode(aId, bId, finalText)
+            if (target) replaceMergeNode(target.id, finalText, model)
+            else addMergeNode(aId, bId, finalText, model)
             onClose()
           }}
         >

@@ -1,4 +1,4 @@
-import type { Canvas, CanvasNode, ContextBlock } from '../types'
+import type { Canvas, CanvasNode, ContextBlock, ModelId } from '../types'
 
 /**
  * Telling a merge node when the branches under it have moved on.
@@ -114,11 +114,15 @@ export function rebuildSources(canvas: Canvas, mergeId: string): [string, string
  * block's text changes — the block keeps its own id and heading, because the
  * heading is part of the prompt and the user may have written it.
  *
+ * `model` is optional because a rebuild is usually about the text; passing one
+ * re-points the node at a different model in the same step, which is the same
+ * choice the merge dialog offers when the node is first created.
  */
 export function rebuiltMergeNode(
   canvas: Canvas,
   mergeId: string,
   mergedText: string,
+  model?: ModelId,
 ): CanvasNode | null {
   const node = canvas.nodes.find((n) => n.id === mergeId)
   if (!node?.data.mergedFrom) return null
@@ -133,6 +137,7 @@ export function rebuiltMergeNode(
         id: existing?.id ?? `${node.id}-merged`,
         label: existing?.label ?? 'merged correction',
       }),
+      model: model ?? node.data.model,
       mergeBasis: mergeBasisFor(canvas, node.data.mergedFrom),
     },
   }

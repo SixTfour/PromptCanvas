@@ -341,3 +341,19 @@ describe('context and corrections do not get folded together', () => {
     expect(carriedContext(c, ['n-terse'])).toHaveLength(1)
   })
 })
+
+describe('the model a merged node runs on', () => {
+  const drifted2 = editBlock(stamped, 'n-terse', { text: 'Moved on.' })
+
+  it('keeps the existing model when a rebuild does not name one', () => {
+    const before = drifted2.nodes.find((n) => n.id === 'n-merged')!.data.model
+    expect(rebuiltMergeNode(drifted2, 'n-merged', 'text')!.data.model).toBe(before)
+  })
+
+  it('re-points the node when a rebuild does name one', () => {
+    // A merge is a new experiment: the text and the model are both fair game,
+    // and making the user rebuild twice to change both would be busywork.
+    const out = rebuiltMergeNode(drifted2, 'n-merged', 'text', 'HuggingFaceTB/SmolLM2-1.7B-Instruct')
+    expect(out!.data.model).toBe('HuggingFaceTB/SmolLM2-1.7B-Instruct')
+  })
+})
