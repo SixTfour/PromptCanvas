@@ -1,0 +1,104 @@
+{
+  "format": "promptcanvas.v1",
+  "canvas": {
+    "id": "c-skillauthor",
+    "name": "Authoring a Claude skill",
+    "rootId": "n-root",
+    "createdAt": 0,
+    "updatedAt": 0,
+    "nodes": [
+      {
+        "id": "n-root",
+        "type": "prompt",
+        "position": {
+          "x": 0,
+          "y": 0
+        },
+        "data": {
+          "title": "Baseline",
+          "system": "You write Claude Code skills. You output the contents of SKILL.md and nothing else -- no preamble, no explanation of your choices.",
+          "instruction": "Write SKILL.md for the skill described above.",
+          "blocks": [
+            {
+              "id": "b-format",
+              "label": "Skill format",
+              "kind": "context",
+              "enabled": true,
+              "text": "A skill is a single SKILL.md file with YAML frontmatter and a markdown body.\n\nFrontmatter has exactly two required keys:\n  name: short-kebab-case, matching the directory name\n  description: one or two sentences, read by Claude to decide whether to load\n    this skill. It is the ONLY part Claude sees before loading.\n\nThe body is markdown. It is loaded into Claude's context and followed as\ninstructions when the skill fires."
+            },
+            {
+              "id": "b-request",
+              "label": "The request",
+              "kind": "context",
+              "enabled": true,
+              "text": "We keep writing release notes by hand from `git log` and they come out\ninconsistent -- sometimes a wall of commit subjects, sometimes three bullets\nthat miss half the work. Different people write them differently.\n\nBuild a skill that takes a range of commits and produces release notes."
+            }
+          ],
+          "model": "HuggingFaceTB/SmolLM2-360M-Instruct",
+          "maxNewTokens": "auto",
+          "runs": []
+        }
+      },
+      {
+        "id": "n-trigger",
+        "type": "prompt",
+        "position": {
+          "x": 430,
+          "y": -160
+        },
+        "data": {
+          "title": "Correction: description triggers",
+          "blocks": [
+            {
+              "id": "b-trigger",
+              "label": "correction: description triggers",
+              "kind": "correction",
+              "enabled": true,
+              "text": "The description is the only thing Claude reads when deciding whether to load this skill, so it has to be written for that decision. Lead with the situation that should trigger it -- what the user is doing or asking when this skill applies -- rather than with what the skill is or how it works. Two sentences at most."
+            }
+          ],
+          "model": "HuggingFaceTB/SmolLM2-360M-Instruct",
+          "maxNewTokens": "auto",
+          "runs": []
+        }
+      },
+      {
+        "id": "n-procedure",
+        "type": "prompt",
+        "position": {
+          "x": 430,
+          "y": 160
+        },
+        "data": {
+          "title": "Correction: body is a procedure",
+          "blocks": [
+            {
+              "id": "b-procedure",
+              "label": "correction: body is a procedure",
+              "kind": "correction",
+              "enabled": true,
+              "text": "The body is read by Claude at the moment it acts, not by a person browsing documentation. Cut every sentence that explains, justifies or introduces. What remains should be numbered steps Claude can execute in order, and it must say what to do when the commit range is ambiguous or the log is empty."
+            }
+          ],
+          "model": "HuggingFaceTB/SmolLM2-360M-Instruct",
+          "maxNewTokens": "auto",
+          "runs": []
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e-trigger",
+        "source": "n-root",
+        "target": "n-trigger",
+        "kind": "branch"
+      },
+      {
+        "id": "e-procedure",
+        "source": "n-root",
+        "target": "n-procedure",
+        "kind": "branch"
+      }
+    ]
+  }
+}
