@@ -6,6 +6,7 @@ import { Inspector } from './components/Inspector'
 import { ModelPicker } from './components/ModelPicker'
 import { Toolbar } from './components/Toolbar'
 import { downloadedModels } from './lib/engine'
+import { isRedo, isTypingTarget, isUndo } from './lib/keys'
 import { formatMb } from './lib/models'
 import { useCanvas } from './store/useCanvas'
 
@@ -14,10 +15,29 @@ export default function App() {
   const setNotice = useCanvas((s) => s.setNotice)
   const compare = useCanvas((s) => s.compare)
   const loading = useCanvas((s) => s.loading)
+  const undo = useCanvas((s) => s.undo)
+  const redo = useCanvas((s) => s.redo)
 
   // Nothing on this machine yet: the first thing to decide is which weights to
   // pull, so ask before showing a canvas whose Run button would do nothing.
   const [showFirstRun, setShowFirstRun] = useState(() => downloadedModels().length === 0)
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      // Inside a field, the browser's own text undo is the right behaviour;
+      // rolling back the whole canvas mid-sentence would not be.
+      if (isTypingTarget(e.target)) return
+      if (isUndo(e)) {
+        e.preventDefault()
+        undo()
+      } else if (isRedo(e)) {
+        e.preventDefault()
+        redo()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [undo, redo])
 
   useEffect(() => {
     if (!notice) return

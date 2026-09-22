@@ -37,6 +37,7 @@ export function Inspector() {
   const [tab, setTab] = useState<'output' | 'prompt' | 'composed'>('output')
   const [copied, setCopied] = useState<string | null>(null)
   const [composedView, setComposedView] = useState<'raw' | 'rendered'>('raw')
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const lastNode = useRef<string | null>(null)
 
   const node = canvas.nodes.find((n) => n.id === selectedId)
@@ -51,6 +52,7 @@ export function Inspector() {
   useEffect(() => {
     if (!selectedId || selectedId === lastNode.current) return
     lastNode.current = selectedId
+    setConfirmDelete(false)
     const n = canvas.nodes.find((x) => x.id === selectedId)
     setTab(n && n.data.runs.length > 0 ? 'output' : 'prompt')
   }, [selectedId, canvas.nodes])
@@ -78,6 +80,7 @@ export function Inspector() {
     (r) => r.status === 'streaming' || r.status === 'loading',
   )
   const inherited = composed.blocks.filter((b) => b.inherited)
+  const childCount = canvas.edges.filter((e) => e.source === node.id).length
   const spec = MODELS[node.data.model]
 
   const promptTokens = estimateTokens(composed.text) + estimateTokens(composed.system)
@@ -302,11 +305,6 @@ export function Inspector() {
               )}
             </div>
 
-            {!isRoot && (
-              <Button variant="danger" size="sm" onClick={() => deleteNode(node.id)}>
-                Delete node
-              </Button>
-            )}
           </div>
         )}
 
@@ -466,7 +464,39 @@ export function Inspector() {
       </div>
 
       <div className="border-t border-[var(--color-edge)] p-3">
+        {confirmDelete ? (
+          <div className="flex items-center gap-2">
+            <span className="flex-1 text-[12px] leading-snug text-[var(--color-warn)]">
+              Delete &ldquo;{node.data.title}&rdquo;?
+              {childCount > 0 &&
+                ` Its ${childCount === 1 ? 'child' : `${childCount} children`} will reconnect to its parent.`}
+            </span>
+            <Button size="sm" variant="ghost" onClick={() => setConfirmDelete(false)}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              variant="danger"
+              onClick={() => {
+                setConfirmDelete(false)
+                deleteNode(node.id)
+              }}
+            >
+              Delete
+            </Button>
+          </div>
+        ) : (
         <div className="flex items-center gap-2">
+          {!isRoot && (
+            <Button
+              size="sm"
+              variant="danger"
+              onClick={() => setConfirmDelete(true)}
+              title="Delete this node"
+            >
+              Delete
+            </Button>
+          )}
           <Button size="sm" variant="ghost" onClick={() => addBranch(node.id)}>
             Branch
           </Button>
@@ -494,6 +524,7 @@ export function Inspector() {
             </Button>
           )}
         </div>
+        )}
       </div>
     </div>
   )

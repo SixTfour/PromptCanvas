@@ -18,8 +18,37 @@ import { DEFAULT_MODEL, type ModelId } from '../lib/models'
 import { saveCanvas } from '../lib/storage'
 import type { Canvas, CanvasNode, ContextBlock, PromptNodeData, Run } from '../types'
 
+/** How many steps back you can go before the oldest is dropped. */
+const HISTORY_LIMIT = 60
+
+/** Edits closer together than this, with the same key, collapse into one step. */
+const COALESCE_MS = 700
+
+/**
+ * Restore a remembered canvas without throwing away generated text.
+ *
+ * Runs are expensive and are not really part of the edit you are undoing, so a
+ * node that still exists keeps whatever it has generated since. A node being
+ * brought back from a delete gets its own runs back, because those went away
+ * with it.
+ */
+function restoreCanvas(historical: Canvas, current: Canvas): Canvas {
+  const liveRuns = new Map(current.nodes.map((n) => [n.id, n.data.runs]))
+  return {
+    ...historical,
+    nodes: historical.nodes.map((n) => {
+      const existing = liveRuns.get(n.id)
+      return existing ? { ...n, data: { ...n.data, runs: existing } } : n
+    }),
+    updatedAt: Date.now(),
+  }
+}
+
 interface CanvasState {
   canvas: Canvas
+  /** Snapshots behind and ahead of the current canvas. */
+  past: Canvas[]
+  future: Canvas[]
   selectedId: string | null
   /** Node ids pinned into the side-by-side comparison tray. */
   compare: string[]
@@ -32,6 +61,8 @@ interface CanvasState {
   notice: { kind: 'info' | 'warn' | 'error'; text: string } | null
 
   setCanvas: (c: Canvas) => void
+  undo: () => void
+  redo: () => void
   select: (id: string | null) => void
   toggleCompare: (id: string) => void
   clearCompare: () => void
@@ -94,6 +125,33 @@ export const useCanvas = create<CanvasState>((set, get) => {
   // Model download progress is pushed from the worker rather than polled.
   onLoadProgress((p) => set({ loading: p }))
 
+  /**
+   * Remember the canvas before an edit changes it.
+   *
+   * `coalesceKey` collapses a run of related edits into one step: typing into a
+   * prompt should be one undo, not one per keystroke, and dragging a node
+   * should be one undo, not one per frame.
+   */
+  let lastCoalesce: { key: string; at: number } | null = null
+
+  const pushHistory = (coalesceKey?: string) => {
+    const now = Date.now()
+    if (
+      coalesceKey &&
+      lastCoalesce &&
+      lastCoalesce.key === coalesceKey &&
+      now - lastCoalesce.at < COALESCE_MS
+    ) {
+      lastCoalesce.at = now
+      return
+    }
+    lastCoalesce = coalesceKey ? { key: coalesceKey, at: now } : null
+
+    const past = [...get().past, get().canvas].slice(-HISTORY_LIMIT)
+    // Any new edit invalidates the redo branch, as in every other editor.
+    set({ past, future: [] })
+  }
+
   const persist = () => {
     void saveCanvas(get().canvas).catch(() => {
       /* storage is best-effort; export is the durable path */
@@ -119,6 +177,8 @@ export const useCanvas = create<CanvasState>((set, get) => {
 
   return {
     canvas: layoutCanvas(buildStarterCanvas()),
+    past: [],
+    future: [],
     selectedId: 'n-root',
     compare: [],
     loading: null,
@@ -127,7 +187,34 @@ export const useCanvas = create<CanvasState>((set, get) => {
     notice: null,
 
     setCanvas: (c) => {
+      pushHistory()
       set({ canvas: c, selectedId: c.rootId, compare: [] })
+      persist()
+    },
+
+    undo: () => {
+      const { past, canvas, future } = get()
+      const previous = past.at(-1)
+      if (!previous) return
+      lastCoalesce = null
+      set({
+        past: past.slice(0, -1),
+        canvas: restoreCanvas(previous, canvas),
+        future: [canvas, ...future].slice(0, HISTORY_LIMIT),
+      })
+      persist()
+    },
+
+    redo: () => {
+      const { past, canvas, future } = get()
+      const next = future[0]
+      if (!next) return
+      lastCoalesce = null
+      set({
+        past: [...past, canvas].slice(-HISTORY_LIMIT),
+        canvas: restoreCanvas(next, canvas),
+        future: future.slice(1),
+      })
       persist()
     },
     select: (id) => set({ selectedId: id }),
@@ -139,13 +226,19 @@ export const useCanvas = create<CanvasState>((set, get) => {
     setNotice: (n) => set({ notice: n }),
 
     updateNodeData: (id, patch) => {
+      // Keyed by field so switching from the title to the model is a new step.
+      pushHistory(`data:${id}:${Object.keys(patch).join(',')}`)
       patchNode(id, (n) => ({ ...n, data: { ...n.data, ...patch } }))
       persist()
     },
 
-    moveNode: (id, position) => patchNode(id, (n) => ({ ...n, position })),
+    moveNode: (id, position) => {
+      pushHistory(`move:${id}`)
+      patchNode(id, (n) => ({ ...n, position }))
+    },
 
     addBranch: (parentId, correction) => {
+      pushHistory()
       const canvas = get().canvas
       const parent = canvas.nodes.find((n) => n.id === parentId)
       if (!parent) return parentId
@@ -192,6 +285,7 @@ export const useCanvas = create<CanvasState>((set, get) => {
      * their history intact and the provenance stays visible.
      */
     addMergeNode: (aId, bId, mergedText, title) => {
+      pushHistory()
       const canvas = get().canvas
       const a = canvas.nodes.find((n) => n.id === aId)
       const b = canvas.nodes.find((n) => n.id === bId)
@@ -244,6 +338,7 @@ export const useCanvas = create<CanvasState>((set, get) => {
         set({ notice: { kind: 'warn', text: 'The root prompt cannot be deleted.' } })
         return
       }
+      pushHistory()
       // Only the node itself goes; orphaned children are re-pointed at its
       // parents so deleting a middle node does not silently destroy a subtree.
       const parents = canvas.edges.filter((e) => e.target === id).map((e) => e.source)
@@ -271,21 +366,25 @@ export const useCanvas = create<CanvasState>((set, get) => {
     },
 
     relayout: () => {
+      pushHistory()
       set({ canvas: layoutCanvas(get().canvas) })
       persist()
     },
 
     resetToStarter: () => {
+      pushHistory()
       set({ canvas: layoutCanvas(buildStarterCanvas()), selectedId: 'n-root', compare: [] })
     },
 
     newCanvas: () => {
+      pushHistory()
       const c = emptyCanvas()
       set({ canvas: c, selectedId: c.rootId, compare: [] })
       persist()
     },
 
     addBlock: (nodeId, block) => {
+      pushHistory()
       patchNode(nodeId, (n) => ({
         ...n,
         data: {
@@ -306,6 +405,7 @@ export const useCanvas = create<CanvasState>((set, get) => {
     },
 
     updateBlock: (nodeId, blockId, patch) => {
+      pushHistory(`block:${blockId}:${Object.keys(patch).join(',')}`)
       patchNode(nodeId, (n) => ({
         ...n,
         data: {
@@ -317,6 +417,7 @@ export const useCanvas = create<CanvasState>((set, get) => {
     },
 
     removeBlock: (nodeId, blockId) => {
+      pushHistory()
       patchNode(nodeId, (n) => ({
         ...n,
         data: { ...n.data, blocks: n.data.blocks.filter((b) => b.id !== blockId) },
@@ -325,6 +426,7 @@ export const useCanvas = create<CanvasState>((set, get) => {
     },
 
     clearRuns: (nodeId) => {
+      pushHistory()
       patchNode(nodeId, (n) => ({ ...n, data: { ...n.data, runs: [] } }))
       persist()
     },

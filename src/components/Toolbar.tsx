@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { currentDevice, currentDtype, loadedModel } from '../lib/engine'
 import { formatError } from '../lib/errors'
+import { shortcutLabels } from '../lib/keys'
 import { MODELS } from '../lib/models'
 import { downloadJson, exportCanvas, importCanvas } from '../lib/storage'
 import { useCanvas } from '../store/useCanvas'
@@ -17,12 +18,17 @@ export function Toolbar() {
   const activeModel = useCanvas((s) => s.activeModel)
   const loading = useCanvas((s) => s.loading)
   const running = useCanvas((s) => s.running)
+  const undo = useCanvas((s) => s.undo)
+  const redo = useCanvas((s) => s.redo)
+  const canUndo = useCanvas((s) => s.past.length > 0)
+  const canRedo = useCanvas((s) => s.future.length > 0)
 
   const [showModels, setShowModels] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const resident = activeModel ?? loadedModel()
   const device = currentDevice()
+  const keys = shortcutLabels()
   const dtype = currentDtype()
 
   return (
@@ -60,6 +66,29 @@ export function Toolbar() {
         </div>
 
         <div className="ml-auto flex items-center gap-1.5">
+          <div className="mr-1 flex items-center gap-0.5">
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={!canUndo}
+              onClick={undo}
+              title={`Undo  (${keys.undo})`}
+              aria-label="Undo"
+            >
+              ↶
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={!canRedo}
+              onClick={redo}
+              title={`Redo  (${keys.redo})`}
+              aria-label="Redo"
+            >
+              ↷
+            </Button>
+          </div>
+
           <Button
             size="sm"
             variant="ghost"

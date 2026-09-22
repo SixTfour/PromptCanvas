@@ -57,7 +57,7 @@ structured prompt text, not dialogue.
 ```bash
 npm install
 npm run dev      # http://localhost:5173
-npm test         # 64 tests over DAG, composition, diff, context budget and errors
+npm test         # 73 tests over DAG, composition, diff, context budget and errors
 npm run build
 ```
 
@@ -139,6 +139,22 @@ Generation is greedy (`do_sample: false`), so re-running an unchanged prompt
 returns identical text. A/B comparison between branches is genuinely
 reproducible, which it is not against a hosted API with no seed.
 
+## Undo
+
+`Ctrl+Z` / `Cmd+Z` undoes, `Ctrl+Y` or `Ctrl+Shift+Z` / `Cmd+Shift+Z` redoes,
+and both are in the toolbar. Runs of related edits collapse into one step, so
+typing a prompt is a single undo rather than one per keystroke, and dragging a
+node is one rather than one per frame.
+
+Undo never destroys generated text: a node that still exists keeps whatever it
+has produced since, and a node restored from a delete gets its own output back.
+
+Inside a text field the browser's own undo is left alone — rolling the whole
+canvas back mid-sentence would be worse than useless.
+
+`Ctrl+R` is deliberately not bound. It is browser reload, which this app needs,
+since reloading is how you restart the inference worker.
+
 ## Diff & Merge
 
 Pin exactly two branches to the compare tray and hit **Diff & Merge**.
@@ -202,6 +218,7 @@ src/
     compose.ts            DAG walking, root→node prompt composition
     diff.ts               word- and phrase-level diff, merge assembly, meta-prompt
     layout.ts             dagre auto-layout (handles two-parent merges)
+    keys.ts               platform-aware shortcut matching
     markdown.ts           toolbar text transforms (pure, so they are testable)
     storage.ts            IndexedDB persistence, export/import
     errors.ts             OOM / WebGPU / download failures in plain English
