@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { buildDemoCanvas, demoResponseFor } from '../data/demoCanvas'
 import { ancestorChain, composePrompt, descendantsOf, parentsOf } from './compose'
-import { alignPhrases, assemble, segmentPhrases, similarity } from './diff'
+import {
+  alignPhrases,
+  alignRows,
+  assemble,
+  countChanges,
+  segmentPhrases,
+  similarity,
+} from './diff'
 import { formatError, friendlyError } from './errors'
 import { layoutCanvas } from './layout'
 import {
@@ -260,5 +267,73 @@ describe('error messages for local inference', () => {
   it('flattens message and hint into readable lines', () => {
     const out = formatError(new Error('out of memory'))
     expect(out.split('\n\n')).toHaveLength(2)
+  })
+})
+
+describe('side-by-side diff rows', () => {
+  it('pairs a reworded phrase into one row instead of a delete plus an insert', () => {
+    const rows = alignRows('Be concise and clear.', 'Be terse and clear.')
+    expect(rows).toHaveLength(1)
+    expect(rows[0].kind).toBe('changed')
+    expect(rows[0].a).toBe('Be concise and clear.')
+    expect(rows[0].b).toBe('Be terse and clear.')
+  })
+
+  it('shows each column only its own side markers', () => {
+    const [row] = alignRows('Be concise.', 'Be terse.')
+    // The A column must never render B's insertions, or it stops reading as prose.
+    expect(row.aChunks?.some((c) => c.kind === 'added')).toBe(false)
+    expect(row.bChunks?.some((c) => c.kind === 'removed')).toBe(false)
+    expect(row.aChunks?.map((c) => c.value).join('')).toBe('Be concise.')
+    expect(row.bChunks?.map((c) => c.value).join('')).toBe('Be terse.')
+  })
+
+  it('puts a pure addition on the B side only, with no A counterpart', () => {
+    const rows = alignRows('Shared line.', `Shared line.
+Brand new.`)
+    expect(rows.map((r) => r.kind)).toEqual(['same', 'added'])
+    expect(rows[1].a).toBeUndefined()
+    expect(rows[1].b).toBe('Brand new.')
+  })
+
+  it('puts a pure removal on the A side only, with no B counterpart', () => {
+    const rows = alignRows(`Shared line.
+Going away.`, 'Shared line.')
+    expect(rows.map((r) => r.kind)).toEqual(['same', 'removed'])
+    expect(rows[1].b).toBeUndefined()
+    expect(rows[1].a).toBe('Going away.')
+  })
+
+  it('handles an uneven rewrite without dropping or duplicating phrases', () => {
+    const aText = 'One. Two. Three.'
+    const bText = 'One changed. Two changed. Three changed. Four added.'
+    const rows = alignRows(aText, bText)
+    expect(rows.flatMap((r) => (r.a ? [r.a] : []))).toEqual(segmentPhrases(aText))
+    expect(rows.flatMap((r) => (r.b ? [r.b] : []))).toEqual(segmentPhrases(bText))
+  })
+
+  it('never loses a phrase, whatever the shape of the edit', () => {
+    const cases: Array<[string, string]> = [
+      ['', 'Only B.'],
+      ['Only A.', ''],
+      ['Same.', 'Same.'],
+      ['A one. A two. A three.', 'B one.'],
+      ['A one.', 'B one. B two. B three.'],
+      ['Keep. Drop. Keep two.', 'Keep. Keep two.'],
+    ]
+    for (const [x, y] of cases) {
+      const rows = alignRows(x, y)
+      expect(rows.flatMap((r) => (r.a ? [r.a] : [])), `A side of ${JSON.stringify(x)}`).toEqual(
+        segmentPhrases(x),
+      )
+      expect(rows.flatMap((r) => (r.b ? [r.b] : [])), `B side of ${JSON.stringify(y)}`).toEqual(
+        segmentPhrases(y),
+      )
+    }
+  })
+
+  it('reports identical text as zero differences', () => {
+    expect(countChanges(alignRows('Same words.', 'Same words.'))).toBe(0)
+    expect(countChanges(alignRows('One.', 'Two.'))).toBe(1)
   })
 })

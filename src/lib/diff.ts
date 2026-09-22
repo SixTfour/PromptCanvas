@@ -148,3 +148,108 @@ export function buildSynthesisPrompt(input: {
   )
   return parts.join('\n')
 }
+
+export interface DiffRow {
+  id: string
+  /**
+   * `changed` is a phrase that exists on both sides in different words — the
+   * common case when a branch reworks a line rather than adding or cutting one.
+   * Keeping those two phrases on one row is the whole point of the split view.
+   */
+  kind: 'same' | 'changed' | 'added' | 'removed'
+  a?: string
+  b?: string
+  /** Word-level chunks, populated only for `changed` rows. */
+  aChunks?: InlineChunk[]
+  bChunks?: InlineChunk[]
+}
+
+/**
+ * Word-level diff of a single phrase pair, split per side.
+ *
+ * The A column shows what was there (unchanged words plus removals); the B
+ * column shows what replaced it (unchanged words plus additions). Neither
+ * column carries the other side's markers, so each one reads as prose.
+ */
+function sideChunks(a: string, b: string): { aChunks: InlineChunk[]; bChunks: InlineChunk[] } {
+  const parts = diffWordsWithSpace(a, b)
+  const aChunks: InlineChunk[] = []
+  const bChunks: InlineChunk[] = []
+  for (const p of parts) {
+    if (p.added) bChunks.push({ value: p.value, kind: 'added' })
+    else if (p.removed) aChunks.push({ value: p.value, kind: 'removed' })
+    else {
+      aChunks.push({ value: p.value, kind: 'same' })
+      bChunks.push({ value: p.value, kind: 'same' })
+    }
+  }
+  return { aChunks, bChunks }
+}
+
+/**
+ * Align two texts into side-by-side rows.
+ *
+ * A unified word-level diff of two prompt variants reads as confetti: every
+ * reworded line becomes alternating strikethrough and insert, and the eye has
+ * nothing stable to follow. Rows fix that by giving each side its own column and
+ * pairing a removal with the addition that replaced it, so a reworded phrase is
+ * one row you read across rather than two fragments you reassemble.
+ */
+export function alignRows(aText: string, bText: string): DiffRow[] {
+  const a = segmentPhrases(aText)
+  const b = segmentPhrases(bText)
+  const parts = diffArrays(a.map(norm), b.map(norm))
+
+  const rows: DiffRow[] = []
+  let ai = 0
+  let bi = 0
+  let seq = 0
+
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i]
+    const count = part.count ?? part.value.length
+
+    if (!part.added && !part.removed) {
+      for (let k = 0; k < count; k++) {
+        rows.push({ id: `r${seq++}`, kind: 'same', a: a[ai++], b: b[bi++] })
+      }
+      continue
+    }
+
+    if (part.removed) {
+      // A removal immediately followed by an addition is a rewrite, not a
+      // delete-then-insert. Zip them so the two versions sit on one row.
+      const next = parts[i + 1]
+      const addCount = next?.added ? (next.count ?? next.value.length) : 0
+      const paired = Math.min(count, addCount)
+
+      for (let k = 0; k < paired; k++) {
+        const left = a[ai++]
+        const right = b[bi++]
+        rows.push({ id: `r${seq++}`, kind: 'changed', a: left, b: right, ...sideChunks(left, right) })
+      }
+      for (let k = paired; k < count; k++) {
+        rows.push({ id: `r${seq++}`, kind: 'removed', a: a[ai++] })
+      }
+      if (addCount > 0) {
+        for (let k = paired; k < addCount; k++) {
+          rows.push({ id: `r${seq++}`, kind: 'added', b: b[bi++] })
+        }
+        i++ // the addition run was consumed here
+      }
+      continue
+    }
+
+    // A pure addition run with no preceding removal.
+    for (let k = 0; k < count; k++) {
+      rows.push({ id: `r${seq++}`, kind: 'added', b: b[bi++] })
+    }
+  }
+
+  return rows
+}
+
+/** How many rows differ, for the "N changes" counter and the empty state. */
+export function countChanges(rows: DiffRow[]): number {
+  return rows.filter((r) => r.kind !== 'same').length
+}

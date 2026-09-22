@@ -1,8 +1,17 @@
 import { useMemo, useState } from 'react'
+import { composePrompt } from '../lib/compose'
+import {
+  type DiffRow,
+  type InlineChunk,
+  alignPhrases,
+  alignRows,
+  assemble,
+  buildSynthesisPrompt,
+  countChanges,
+  inlineDiff,
+} from '../lib/diff'
 import { generate } from '../lib/engine'
 import { formatError } from '../lib/errors'
-import { composePrompt } from '../lib/compose'
-import { alignPhrases, assemble, buildSynthesisPrompt, inlineDiff } from '../lib/diff'
 import { useCanvas } from '../store/useCanvas'
 import { Badge, Button, Field, Modal } from './ui'
 
@@ -12,11 +21,11 @@ import { Badge, Button, Field, Modal } from './ui'
  * Two ways to build the merged prompt, side by side because they suit different
  * moments:
  *
- *   - **Pick phrases** is deterministic, free, and exact. Phrases shared by both
+ *   - **Pick phrases** is deterministic and exact. Phrases shared by both
  *     branches are selected by default; the contested ones are yours to choose.
  *   - **Synthesise with the model** hands both prompts and both outputs to the
- *     local model and asks for a single stronger prompt. On a small model this is
- *     the weaker of the two paths; picking phrases is the reliable one.
+ *     local model and asks for a single stronger prompt. On a small model this
+ *     is the weaker path; picking phrases is the reliable one.
  *
  * Whichever you use, the result becomes a *new* node with edges from both
  * parents. Nothing is re-parented and no history is destroyed.
@@ -39,31 +48,33 @@ export function DiffMerge({
   const b = canvas.nodes.find((n) => n.id === bId)!
 
   const [source, setSource] = useState<'prompts' | 'outputs'>('prompts')
+  const [view, setView] = useState<'split' | 'unified'>('split')
+  const [hideSame, setHideSame] = useState(false)
   const [merged, setMerged] = useState('')
   const [synthesising, setSynthesising] = useState(false)
 
-  const aText = useMemo(
-    () =>
-      source === 'prompts'
-        ? a.data.blocks.filter((x) => x.enabled).map((x) => x.text).join('\n\n')
-        : (a.data.runs.at(-1)?.text ?? ''),
-    [a, source],
-  )
-  const bText = useMemo(
-    () =>
-      source === 'prompts'
-        ? b.data.blocks.filter((x) => x.enabled).map((x) => x.text).join('\n\n')
-        : (b.data.runs.at(-1)?.text ?? ''),
-    [b, source],
-  )
+  const textOf = (node: typeof a) =>
+    source === 'prompts'
+      ? node.data.blocks
+          .filter((x) => x.enabled)
+          .map((x) => x.text)
+          .join('\n\n')
+      : (node.data.runs.at(-1)?.text ?? '')
 
+  const aText = useMemo(() => textOf(a), [a, source])
+  const bText = useMemo(() => textOf(b), [b, source])
+
+  const rows = useMemo(() => alignRows(aText, bText), [aText, bText])
+  const changes = useMemo(() => countChanges(rows), [rows])
+  const unified = useMemo(() => inlineDiff(aText, bText), [aText, bText])
   const phrases = useMemo(() => alignPhrases(aText, bText), [aText, bText])
+
   const [selected, setSelected] = useState<Set<string>>(
     () => new Set(alignPhrases(aText, bText).filter((p) => p.side === 'both').map((p) => p.id)),
   )
 
-  const inline = useMemo(() => inlineDiff(aText, bText), [aText, bText])
   const picked = assemble(phrases, selected)
+  const visibleRows = hideSame ? rows.filter((r) => r.kind !== 'same') : rows
 
   const toggle = (id: string) => {
     const next = new Set(selected)
@@ -122,48 +133,84 @@ export function DiffMerge({
 
   return (
     <Modal title="Diff & Merge" onClose={onClose} wide>
-      <div className="mb-3 flex items-center gap-2">
-        <span className="text-[12px] text-[var(--color-muted)]">Compare</span>
-        {(['prompts', 'outputs'] as const).map((s) => (
-          <button
-            key={s}
-            onClick={() => setSource(s)}
-            className={`rounded px-2 py-1 text-[12px] ${
-              source === s
-                ? 'bg-[var(--color-accent)] text-[#0b0d12]'
-                : 'bg-[var(--color-edge)] text-[var(--color-muted)] hover:text-[var(--color-ink)]'
-            }`}
-          >
-            {s}
-          </button>
-        ))}
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <Segmented
+          value={source}
+          onChange={setSource}
+          options={[
+            { value: 'prompts', label: 'prompts' },
+            { value: 'outputs', label: 'outputs' },
+          ]}
+        />
+        <span className="text-[var(--color-edge)]">|</span>
+        <Segmented
+          value={view}
+          onChange={setView}
+          options={[
+            { value: 'split', label: 'side by side' },
+            { value: 'unified', label: 'inline' },
+          ]}
+        />
+        {view === 'split' && changes > 0 && (
+          <label className="flex cursor-pointer items-center gap-1.5 text-[12px] text-[var(--color-muted)]">
+            <input
+              type="checkbox"
+              checked={hideSame}
+              onChange={(e) => setHideSame(e.target.checked)}
+              className="accent-[var(--color-accent)]"
+            />
+            only changes
+          </label>
+        )}
         <span className="ml-auto text-[11px] text-[var(--color-muted)]">
-          <span className="text-[var(--color-danger)]">A: {a.data.title}</span>
-          {' · '}
-          <span className="text-[var(--color-good)]">B: {b.data.title}</span>
+          {changes === 0 ? 'identical' : `${changes} ${changes === 1 ? 'difference' : 'differences'}`}
         </span>
       </div>
 
-      <div className="mb-4 max-h-44 overflow-y-auto rounded border border-[var(--color-edge)] bg-[var(--color-canvas)] p-2.5 text-[12px] leading-relaxed">
-        {inline.length === 0 ? (
-          <span className="text-[#5a6175]">Nothing to compare.</span>
-        ) : (
-          inline.map((c, i) => (
-            <span
-              key={i}
-              className={
-                c.kind === 'added'
-                  ? 'bg-[#16332a] text-[var(--color-good)]'
-                  : c.kind === 'removed'
-                    ? 'bg-[#3a1f22] text-[var(--color-danger)] line-through'
-                    : ''
-              }
-            >
-              {c.value}
-            </span>
-          ))
-        )}
-      </div>
+      {view === 'split' ? (
+        <div className="mb-4 overflow-hidden rounded border border-[var(--color-edge)]">
+          <div className="grid grid-cols-2 border-b border-[var(--color-edge)] bg-[var(--color-canvas)] text-[11px] font-medium">
+            <div className="truncate border-r border-[var(--color-edge)] px-2.5 py-1.5 text-[var(--color-danger)]">
+              A · {a.data.title}
+            </div>
+            <div className="truncate px-2.5 py-1.5 text-[var(--color-good)]">
+              B · {b.data.title}
+            </div>
+          </div>
+          <div className="max-h-64 overflow-y-auto">
+            {visibleRows.length === 0 ? (
+              <p className="px-2.5 py-6 text-center text-[12px] text-[#5a6175]">
+                {rows.length === 0
+                  ? 'Nothing to compare.'
+                  : 'These two are identical. Branches this similar are probably not testing anything.'}
+              </p>
+            ) : (
+              visibleRows.map((row) => <SplitRow key={row.id} row={row} />)
+            )}
+          </div>
+        </div>
+      ) : (
+        <div className="mb-4 max-h-64 overflow-y-auto rounded border border-[var(--color-edge)] bg-[var(--color-canvas)] p-2.5 text-[12px] leading-relaxed">
+          {unified.length === 0 ? (
+            <span className="text-[#5a6175]">Nothing to compare.</span>
+          ) : (
+            unified.map((c, i) => (
+              <span
+                key={i}
+                className={
+                  c.kind === 'added'
+                    ? 'rounded-sm bg-[#16332a] text-[var(--color-good)]'
+                    : c.kind === 'removed'
+                      ? 'rounded-sm bg-[#3a1f22] text-[var(--color-danger)] line-through decoration-[var(--color-danger)]/50'
+                      : ''
+                }
+              >
+                {c.value}
+              </span>
+            ))
+          )}
+        </div>
+      )}
 
       <div className="grid grid-cols-2 gap-4">
         <div>
@@ -188,9 +235,7 @@ export function DiffMerge({
                   className="mt-0.5 accent-[var(--color-accent)]"
                 />
                 <span className="flex-1">{p.text}</span>
-                <Badge
-                  tone={p.side === 'both' ? 'neutral' : p.side === 'a' ? 'danger' : 'good'}
-                >
+                <Badge tone={p.side === 'both' ? 'neutral' : p.side === 'a' ? 'danger' : 'good'}>
                   {p.side === 'both' ? 'both' : p.side.toUpperCase()}
                 </Badge>
               </label>
@@ -203,7 +248,12 @@ export function DiffMerge({
             <span className="text-[11px] uppercase tracking-wider text-[var(--color-muted)]">
               Merged prompt
             </span>
-            <Button size="sm" variant="ghost" disabled={synthesising} onClick={() => void synthesise()}>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={synthesising}
+              onClick={() => void synthesise()}
+            >
               {synthesising ? 'Synthesising…' : 'Synthesise with the model'}
             </Button>
           </div>
@@ -235,5 +285,118 @@ export function DiffMerge({
         </Button>
       </div>
     </Modal>
+  )
+}
+
+/**
+ * One row of the side-by-side view.
+ *
+ * Unchanged rows are deliberately dim and unmarked so the eye skips them. Only
+ * `changed` rows carry word-level highlighting, and each column shows only its
+ * own side's markers — the A column never renders B's insertions, so both
+ * columns read as continuous prose rather than as a merge conflict.
+ */
+function SplitRow({ row }: { row: DiffRow }) {
+  const tint =
+    row.kind === 'same'
+      ? ''
+      : row.kind === 'added'
+        ? 'bg-[#16332a]/25'
+        : row.kind === 'removed'
+          ? 'bg-[#3a1f22]/25'
+          : 'bg-[var(--color-warn)]/[0.06]'
+
+  return (
+    <div className={`grid grid-cols-2 border-b border-[var(--color-edge)]/50 last:border-b-0 ${tint}`}>
+      <Cell
+        side="a"
+        kind={row.kind}
+        text={row.a}
+        chunks={row.aChunks}
+        className="border-r border-[var(--color-edge)]/50"
+      />
+      <Cell side="b" kind={row.kind} text={row.b} chunks={row.bChunks} />
+    </div>
+  )
+}
+
+function Cell({
+  side,
+  kind,
+  text,
+  chunks,
+  className = '',
+}: {
+  side: 'a' | 'b'
+  kind: DiffRow['kind']
+  text?: string
+  chunks?: InlineChunk[]
+  className?: string
+}) {
+  // A gutter marker gives the row a meaning that does not depend on colour.
+  const marker =
+    kind === 'same' ? '' : kind === 'changed' ? '~' : side === 'a' ? '−' : '+'
+  const markerTone =
+    kind === 'changed'
+      ? 'text-[var(--color-warn)]'
+      : side === 'a'
+        ? 'text-[var(--color-danger)]'
+        : 'text-[var(--color-good)]'
+
+  if (text === undefined) {
+    // Absent on this side: a quiet placeholder keeps the two columns aligned.
+    return <div className={`min-h-[30px] bg-[var(--color-canvas)]/40 px-2.5 py-1.5 ${className}`} />
+  }
+
+  return (
+    <div className={`flex gap-1.5 px-2.5 py-1.5 text-[12px] leading-relaxed ${className}`}>
+      <span className={`w-2 shrink-0 select-none font-mono ${markerTone}`}>{marker}</span>
+      <span className={kind === 'same' ? 'text-[var(--color-muted)]' : ''}>
+        {chunks
+          ? chunks.map((c, i) => (
+              <span
+                key={i}
+                className={
+                  c.kind === 'removed'
+                    ? 'rounded-sm bg-[#3a1f22] px-0.5 text-[var(--color-danger)]'
+                    : c.kind === 'added'
+                      ? 'rounded-sm bg-[#16332a] px-0.5 text-[var(--color-good)]'
+                      : ''
+                }
+              >
+                {c.value}
+              </span>
+            ))
+          : text}
+      </span>
+    </div>
+  )
+}
+
+function Segmented<T extends string>({
+  value,
+  onChange,
+  options,
+}: {
+  value: T
+  onChange: (v: T) => void
+  options: Array<{ value: T; label: string }>
+}) {
+  return (
+    <div className="flex overflow-hidden rounded border border-[var(--color-edge)]">
+      {options.map((o) => (
+        <button
+          key={o.value}
+          onClick={() => onChange(o.value)}
+          className={`px-2.5 py-1 text-[12px] ${
+            value === o.value
+              ? 'bg-[var(--color-accent)] text-[#0b0d12]'
+              : 'text-[var(--color-muted)] hover:bg-[var(--color-edge)] hover:text-[var(--color-ink)]'
+          }`}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
   )
 }
