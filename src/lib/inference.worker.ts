@@ -8,6 +8,10 @@ import {
   AutoTokenizer,
   env,
 } from '@huggingface/transformers'
+// Resolved by the bundler into real asset URLs, so the runtime is served from
+// this origin in both dev and production without being copied anywhere.
+import ortRuntimeUrl from 'onnxruntime-web/ort-wasm-simd-threaded.asyncify.mjs?url'
+import ortWasmUrl from 'onnxruntime-web/ort-wasm-simd-threaded.asyncify.wasm?url'
 import {
   dtypeCandidates,
   effectiveMaxNewTokens,
@@ -43,10 +47,14 @@ env.allowLocalModels = false
  * meant a third-party request on every cold start, which is hard to square
  * with a tool whose whole claim is that nothing leaves the machine.
  *
- * The files are copied out of node_modules by scripts/copy-ort.mjs, so they
- * always match the installed version.
+ * Pointing at bundler-resolved URLs rather than a fixed path keeps the files
+ * matched to the installed version and lets Vite serve them in dev and emit
+ * them as hashed assets in a build. `wasmPaths` accepts this {mjs, wasm} shape
+ * as well as a prefix string.
  */
-if (env.backends?.onnx?.wasm) env.backends.onnx.wasm.wasmPaths = '/ort/'
+if (env.backends?.onnx?.wasm) {
+  env.backends.onnx.wasm.wasmPaths = { mjs: ortRuntimeUrl, wasm: ortWasmUrl }
+}
 
 interface Loaded {
   id: ModelId
