@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { composePrompt } from '../lib/compose'
 import { presetsWithin } from '../lib/number'
+import { isRunOpen, orderRunsNewestFirst, runPreview } from '../lib/runs'
 import { readPref, writePref } from '../lib/prefs'
 import {
   MODELS,
@@ -56,6 +57,7 @@ export function Inspector() {
     readPref(COMPOSED_VIEW_KEY, COMPOSED_VIEWS, 'raw'),
   )
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [runOverrides, setRunOverrides] = useState<Record<string, boolean>>({})
   const [advancedOpen, setAdvancedOpen] = useState(
     () => readPref(ADVANCED_KEY, ['open', 'closed'] as const, 'closed') === 'open',
   )
@@ -74,6 +76,7 @@ export function Inspector() {
     if (!selectedId || selectedId === lastNode.current) return
     lastNode.current = selectedId
     setConfirmDelete(false)
+    setRunOverrides({})
     const n = canvas.nodes.find((x) => x.id === selectedId)
     setTab(n && n.data.runs.length > 0 ? 'output' : 'prompt')
   }, [selectedId, canvas.nodes])
@@ -528,62 +531,108 @@ export function Inspector() {
               </div>
             )}
 
-            {node.data.runs.map((r, i) => (
-              <div key={r.id} className="rounded-md border border-[var(--color-edge)]">
-                <div className="flex items-center gap-2 border-b border-[var(--color-edge)] px-2.5 py-1.5 text-[11px] text-[var(--color-muted)]">
-                  <span>run {i + 1}</span>
-                  {r.status === 'loading' && <Badge tone="accent">loading model</Badge>}
-                  {r.status === 'streaming' && <Badge tone="accent">generating</Badge>}
-                  {r.status === 'error' && <Badge tone="danger">error</Badge>}
-                  {r.status === 'cancelled' && <Badge>stopped</Badge>}
-                  <span className="ml-auto flex items-center gap-2">
-                    {r.stats && (
-                      <>
-                        <span>{formatTokens(r.stats.completionTokens)} tok</span>
-                        <span>{r.stats.tokensPerSecond.toFixed(1)}/s</span>
-                        <span>{formatDuration(r.stats.elapsedMs)}</span>
-                      </>
-                    )}
-                    {r.text && (
+            {(() => {
+              const ordered = orderRunsNewestFirst(node.data.runs)
+              const newestId = ordered[0]?.run.id
+              return ordered.map(({ run: r, number }) => {
+                const open = isRunOpen(r, r.id === newestId, runOverrides)
+                return (
+                  <div key={r.id} className="rounded-md border border-[var(--color-edge)]">
+                    <button
+                      onClick={() => setRunOverrides((o) => ({ ...o, [r.id]: !open }))}
+                      className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[11px] text-[var(--color-muted)] hover:text-[var(--color-ink)]"
+                      aria-expanded={open}
+                    >
+                      <span className="font-mono text-[10px]">{open ? 'v' : '>'}</span>
+                      <span>run {number}</span>
+                      {r.status === 'loading' && <Badge tone="accent">loading model</Badge>}
+                      {r.status === 'streaming' && <Badge tone="accent">generating</Badge>}
+                      {r.status === 'error' && <Badge tone="danger">error</Badge>}
+                      {r.status === 'cancelled' && <Badge>stopped</Badge>}
+                      <span className="ml-auto flex shrink-0 items-center gap-2">
+                        {r.stats && (
+                          <>
+                            <span>{formatTokens(r.stats.completionTokens)} tok</span>
+                            <span>{r.stats.tokensPerSecond.toFixed(1)}/s</span>
+                            <span>{formatDuration(r.stats.elapsedMs)}</span>
+                          </>
+                        )}
+                      </span>
+                    </button>
+
+                    {open ? (
+                      <div className="border-t border-[var(--color-edge)]">
+                        <div className="flex items-center justify-end px-2.5 pt-1.5">
+                          {r.text && (
+                            <button
+                              onClick={() => void copy(r.id, r.text)}
+                              className="rounded px-1.5 py-0.5 text-[11px] text-[var(--color-muted)] hover:bg-[var(--color-edge)] hover:text-[var(--color-ink)]"
+                            >
+                              {copied === r.id ? 'copied' : 'copy'}
+                            </button>
+                          )}
+                        </div>
+                        {r.error ? (
+                          <p className="whitespace-pre-wrap px-3 pb-2.5 text-[12px] leading-relaxed text-[var(--color-danger)]">
+                            {r.error}
+                          </p>
+                        ) : (
+                          <div className="px-3 pb-2.5 text-[13px] leading-[1.65] text-[var(--color-ink)]">
+                            {r.text ? (
+                              <Markdown>{r.text}</Markdown>
+                            ) : (
+                              <span className="text-[var(--color-muted)]">
+                                {r.status === 'done'
+                                  ? '(empty response)'
+                                  : 'waiting for the first token...'}
+                              </span>
+                            )}
+                            {r.status === 'streaming' && (
+                              <span className="ml-0.5 inline-block h-[14px] w-[7px] translate-y-[2px] animate-pulse bg-[var(--color-accent)]" />
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      /* Collapsed rows still need to be told apart, so each one
+                         keeps a single line of what it produced. */
                       <button
-                        onClick={() => void copy(r.id, r.text)}
-                        className="rounded px-1.5 py-0.5 hover:bg-[var(--color-edge)] hover:text-[var(--color-ink)]"
-                        title="Copy this output"
+                        onClick={() => setRunOverrides((o) => ({ ...o, [r.id]: true }))}
+                        className={`block w-full truncate border-t border-[var(--color-edge)] px-3 py-1.5 text-left text-[11.5px] ${
+                          r.error ? 'text-[var(--color-danger)]/70' : 'text-[#5a6175]'
+                        }`}
                       >
-                        {copied === r.id ? 'copied' : 'copy'}
+                        {runPreview(r)}
                       </button>
                     )}
-                  </span>
-                </div>
-
-                {r.error ? (
-                  <p className="whitespace-pre-wrap px-3 py-2.5 text-[12px] leading-relaxed text-[var(--color-danger)]">
-                    {r.error}
-                  </p>
-                ) : (
-                  /* Generated text is the reason this panel exists: full width,
-                     body-copy size, and no inner scroll box to read it through. */
-                  <div className="px-3 py-2.5 text-[13px] leading-[1.65] text-[var(--color-ink)]">
-                    {r.text ? (
-                      <Markdown>{r.text}</Markdown>
-                    ) : (
-                      <span className="text-[var(--color-muted)]">
-                        {r.status === 'done' ? '(empty response)' : 'waiting for the first token…'}
-                      </span>
-                    )}
-                    {r.status === 'streaming' && (
-                      <span className="ml-0.5 inline-block h-[14px] w-[7px] translate-y-[2px] animate-pulse bg-[var(--color-accent)]" />
-                    )}
                   </div>
-                )}
-              </div>
-            ))}
+                )
+              })
+            })()}
 
             {node.data.runs.length > 0 && (
               <div className="flex items-center gap-2">
                 <Button size="sm" variant="ghost" onClick={() => clearRuns(node.id)}>
                   Clear runs
                 </Button>
+                {node.data.runs.length > 1 && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() =>
+                      setRunOverrides((o) => {
+                        const anyClosed = node.data.runs.some(
+                          (r, i) => !isRunOpen(r, i === node.data.runs.length - 1, o),
+                        )
+                        return Object.fromEntries(
+                          node.data.runs.map((r) => [r.id, anyClosed]),
+                        )
+                      })
+                    }
+                  >
+                    Expand / collapse all
+                  </Button>
+                )}
                 <span className="text-[11px] text-[#5a6175]">
                   Generation is greedy, so an unchanged prompt returns identical text.
                 </span>

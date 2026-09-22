@@ -57,7 +57,7 @@ structured prompt text, not dialogue.
 ```bash
 npm install
 npm run dev      # http://localhost:5173
-npm test         # 126 tests over DAG, composition, diff, context budget and errors
+npm test         # 136 tests over DAG, composition, diff, context budget and errors
 npm run build
 ```
 
@@ -260,6 +260,7 @@ src/
     keys.ts               platform-aware shortcut matching
     number.ts             committing typed numbers without fighting the caret
     prefs.ts              remembered view preferences, validated on read
+    runs.ts               run ordering, collapse rules and previews
     search.ts             session search over names and prompt text
     url.ts                ?session= addressing, parsed and rewritten purely
     time.ts               relative timestamps for the session list
